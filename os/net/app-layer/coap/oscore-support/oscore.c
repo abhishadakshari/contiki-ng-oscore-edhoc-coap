@@ -575,12 +575,14 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
   if (ctx == NULL)
   {
     LOG_ERR("No context in OSCORE!\n");
+    coap_error_message = "OSCORE: no security context";
     return 0;
   }
 
    /* Never reuse a nonce. OSCORE_SEQ_MAX is the first unusable value. */
   if(coap_is_request(coap_pkt) && ctx->sender_context.seq >= OSCORE_SEQ_MAX) {
     LOG_ERR("OSCORE sender sequence number exhausted, derive a new context\n");
+    coap_error_message = "OSCORE: sender sequence number exhausted";
     return 0;
   }
 
@@ -622,6 +624,7 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
     if (!oscore_set_exchange(coap_pkt->token, coap_pkt->token_len, ctx->sender_context.seq, ctx))
     {
       LOG_ERR("OSCORE Could not store exchange.\n");
+      coap_error_message = "OSCORE: could not store exchange";
       return 0;
     }
     printf("Storing exchange context sender_id: %02x\n",
@@ -639,6 +642,7 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
   if (ciphertext_len < 0)
   {
     LOG_ERR("OSCORE internal error %d.\n", ciphertext_len);
+    coap_error_message = "OSCORE: encryption failed";
     return 0;
   }
 
