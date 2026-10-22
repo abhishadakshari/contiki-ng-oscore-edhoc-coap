@@ -1084,7 +1084,13 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
     LOG_ERR("Outer OSCORE parse/decrypt failed, status=%u\n", status);
     return status;
   }
-
+  if (!coap_is_option(received, COAP_OPTION_OSCORE))
+  {
+    /* Not protected at all: nothing to remove here. oscore_handle_message()
+     * decides whether an unprotected response is acceptable. */
+    return NO_ERROR;
+  }
+  
   /* Step 2: for each remaining inner layer call oscore_decode_message
    * directly. After Step 1, 'received' has the inner OSCORE option
    * in object_security and the inner ciphertext in payload, no need to
@@ -1108,15 +1114,69 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
   return NO_ERROR;
 }
 
+/* Error codes a server or proxy may send without OSCORE protection, as in
+ * Californium's ObjectSecurityLayer.hasValidResponseCode(). */
+static bool
+oscore_unprotected_code_allowed(uint8_t code, bool via_proxy)
+{
+  switch(code) {
+  case BAD_REQUEST_4_00:
+  case UNAUTHORIZED_4_01:
+  case BAD_OPTION_4_02:
+  case SERVICE_UNAVAILABLE_5_03:
+    return true;
+  case NOT_FOUND_4_04:
+  case REQUEST_ENTITY_TOO_LARGE_4_13:
+  case BAD_GATEWAY_5_02:
+  case GATEWAY_TIMEOUT_5_04:
+  case PROXYING_NOT_SUPPORTED_5_05:
+    return via_proxy;
+  default:
+    return false;
+  }
+}
+
+/* A response to a request we protected must itself be protected (RFC 8613
+ * section 8.4). Returns OSCORE_DECRYPTION_ERROR for one that is not, unless
+ * it is an allowed error code. Either way the request's token entries are
+ * released, one per layer. */
+static coap_status_t
+oscore_check_response_protected(coap_message_t *msg, const coap_endpoint_t *src)
+{
+  if(coap_is_request(msg) || msg->code == 0 ||
+     coap_is_option(msg, COAP_OPTION_OSCORE) ||
+     oscore_get_exchange(msg->token, msg->token_len) == NULL) {
+    return NO_ERROR;   /* not a response to one of our OSCORE requests */
+  }
+
+  while(oscore_get_exchange(msg->token, msg->token_len) != NULL) {
+    oscore_remove_exchange(msg->token, msg->token_len);
+  }
+
+  const oscore_path_t *path = oscore_ep_path_get(src);
+  const bool via_proxy = path != NULL && path->num_layers > 1;
+  if(oscore_unprotected_code_allowed(msg->code, via_proxy)) {
+    return NO_ERROR;
+  }
+  LOG_WARN("Dropping unprotected response to an OSCORE request (code %u)\n", msg->code);
+  coap_error_message = "Unprotected response";
+  return OSCORE_DECRYPTION_ERROR;
+}
+
 coap_status_t
 oscore_handle_message(coap_message_t *msg,
                       uint8_t *buf,
                       size_t len,
                       const coap_endpoint_t *src)
 {
+  coap_status_t status;
 #ifdef OSCORE_CLIENT_MODE
-  return oscore_decode_nested_response(msg, buf, len, src);
+  status = oscore_decode_message_response(msg, buf, len, src);
 #else
-  return oscore_decode_nested_message(msg, buf, len, src);
+    status = oscore_decode_message_response(msg, buf, len, src);
 #endif
+  if (status == NO_ERROR){
+    status = oscore_check_response_protected(msg, src);
+  }
+  return status;
 }
