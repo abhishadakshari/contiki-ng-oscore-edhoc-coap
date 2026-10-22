@@ -293,6 +293,9 @@ coap_status_t oscore_decode_message(coap_message_t *coap_pkt)
   uint8_t aad_buffer[35];
   uint8_t nonce_buffer[COSE_algorithm_AES_CCM_16_64_128_IV_LEN];
   uint8_t seq_buffer[CONTEXT_SEQ_LEN];
+  uint8_t response_piv[sizeof(cose->partial_iv)];
+  uint8_t response_piv_len = 0;
+
   cose_encrypt0_init(cose); // inits new cose object
 #ifdef WITH_GROUPCOM
   cose_sign1_t sign[1];
@@ -396,12 +399,16 @@ coap_status_t oscore_decode_message(coap_message_t *coap_pkt)
 
     LOG_DBG("cose->partial_iv_len == %" PRIu16 " (%" PRIu64 ")\n", cose->partial_iv_len, seq);
 
-    /* If message contains a partial IV, the received is used. */
-    if (cose->partial_iv_len == 0)
+     /* A response may carry its own Partial IV (proxies draft section 2.6).
+     * The AAD always uses the request's Partial IV, so keep the response's
+     * aside for the nonce (set just before the nonce is generated). */
+    if (cose->partial_iv_len > 0)
     {
-      uint8_t seq_len = u64tob(seq, seq_buffer);
-      cose_encrypt0_set_partial_iv(cose, seq_buffer, seq_len);
+      response_piv_len = cose->partial_iv_len;
+      memcpy(response_piv, cose->partial_iv, response_piv_len);
     }
+    uint8_t seq_len = u64tob(seq, seq_buffer);
+    cose_encrypt0_set_partial_iv(cose, seq_buffer, seq_len);
   }
 
   oscore_populate_cose(coap_pkt, cose, ctx, false);
@@ -417,6 +424,15 @@ coap_status_t oscore_decode_message(coap_message_t *coap_pkt)
   cose_encrypt0_set_aad(cose, aad_buffer, nanocbor_encoded_len(&aad_enc));
   cose_encrypt0_set_alg(cose, ctx->alg);
 
+  if (response_piv_len > 0)
+  {
+    /* RFC 8613 section 5.2: the nonce uses the ID of whoever generated the
+     * Partial IV, here the responder (our Recipient ID). */
+    cose_encrypt0_set_partial_iv(cose, response_piv, response_piv_len);
+    cose_encrypt0_set_key_id(cose, ctx->recipient_context.recipient_id,
+                             ctx->recipient_context.recipient_id_len);
+  }
+  
   oscore_generate_nonce(cose, coap_pkt, nonce_buffer, sizeof(nonce_buffer));
   cose_encrypt0_set_nonce(cose, nonce_buffer, sizeof(nonce_buffer));
 
@@ -481,6 +497,13 @@ coap_status_t oscore_decode_message(coap_message_t *coap_pkt)
     cose_sign1_verify(sign); // we do not care about the response; the thing will be in progress
   }
 #endif /* WITH_GROUPCOM */
+
+   /* The outer OSCORE option has been used up. Clear it so that an OSCORE
+   * option inside the plaintext (nested OSCORE) replaces it, rather than
+   * being merged into it by oscore_parser(). Afterwards object_security is
+   * non-NULL exactly when the plaintext held another OSCORE option. */
+  coap_pkt->object_security = NULL;
+  coap_pkt->object_security_len = 0;
 
   return oscore_parser(coap_pkt, cose->content, res, ROLE_CONFIDENTIAL);
 }
