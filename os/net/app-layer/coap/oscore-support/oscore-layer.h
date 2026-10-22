@@ -12,5 +12,17 @@ typedef struct {
   uint8_t num_layers;
 } oscore_path_t;
 
-void oscore_ep_path_set(const coap_endpoint_t *ep, oscore_path_t *path);
+/* Proxies draft section 2.1: the most OSCORE layers this node will apply
+ * to a request or remove from a response. */
+#ifndef OSCORE_MAX_LAYERS
+#define OSCORE_MAX_LAYERS 4
+#endif
+
+/* How many destination endpoints can have a path (not layers per path). */
+#ifndef OSCORE_MAX_PATHS
+#define OSCORE_MAX_PATHS 2
+#endif
+
+/* Returns false if the path is empty, too long or the table is full. */
+bool oscore_ep_path_set(const coap_endpoint_t *ep, oscore_path_t *path);
 oscore_path_t *oscore_ep_path_get(const coap_endpoint_t *ep);

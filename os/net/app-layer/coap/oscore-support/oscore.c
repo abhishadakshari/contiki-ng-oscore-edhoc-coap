@@ -432,7 +432,7 @@ coap_status_t oscore_decode_message(coap_message_t *coap_pkt)
     cose_encrypt0_set_key_id(cose, ctx->recipient_context.recipient_id,
                              ctx->recipient_context.recipient_id_len);
   }
-  
+
   oscore_generate_nonce(cose, coap_pkt, nonce_buffer, sizeof(nonce_buffer));
   cose_encrypt0_set_nonce(cose, nonce_buffer, sizeof(nonce_buffer));
 
@@ -1008,6 +1008,14 @@ size_t oscore_prepare_nested_message(coap_message_t *coap_pkt,
   {
     /* Not nested OSCORE */
     return oscore_prepare_message(coap_pkt, buf_a);
+  }
+
+   if (path->num_layers > OSCORE_MAX_LAYERS)
+  {
+    /* Proxies draft section 2.1: do not send a request needing more layers */
+    LOG_ERR("Nested OSCORE: %u layers exceeds OSCORE_MAX_LAYERS (%u)\n",
+            path->num_layers, OSCORE_MAX_LAYERS);
+    return 0;
   }
 
   // buffers to keep track of what to encrypt
