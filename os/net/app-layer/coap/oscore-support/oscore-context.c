@@ -232,10 +232,11 @@ oscore_set_exchange(const uint8_t *token, uint8_t token_len, uint64_t seq, oscor
     /* If we are at capacity for Endpoint <-> Context associations: */
     LOG_WARN("oscore_set_exchange: out of memory, will try to make room\n");
 
-    /* Remove first element in list, to make space for a new one. */
-    /* The head of the list contains the oldest inserted item,
-     * so most likely to never be coming back to us */
-    new_exchange = list_pop(exchange_list);
+    /* Remove the last element, to make space for a new one. New entries
+     * are pushed to the head (below), so the tail holds the oldest one,
+     * the least likely to still get a response. */
+    // Necessary as logic now pushes elements onto list instead of adding them
+    new_exchange = list_chop(exchange_list);
 
     if (new_exchange == NULL) {
       LOG_ERR("oscore_set_exchange: failed to make room\n");
