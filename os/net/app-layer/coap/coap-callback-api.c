@@ -82,8 +82,20 @@ progress_request(coap_callback_request_state_t *callback_state) {
       coap_set_header_block2(request, state->block_num, 0,
                              COAP_MAX_CHUNK_SIZE);
     }
+    coap_error_message = "";
     state->transaction->message_len =
       coap_serialize_message(request, state->transaction->message);
+      
+    if(state->transaction->message_len == 0) {
+      /* Serialising or OSCORE protection failed: send nothing.
+       * coap_error_message says why. */
+      LOG_WARN("Could not serialise the request (%s), not sending it\n",
+               coap_error_message);
+      coap_clear_transaction(state->transaction);
+      state->transaction = NULL;
+      state->status = COAP_REQUEST_STATUS_SEND_ERROR;
+      return 0;
+    }
 
     coap_send_transaction(state->transaction);
     LOG_DBG("Requested #%"PRIu32" (MID %u)\n", state->block_num, request->mid);

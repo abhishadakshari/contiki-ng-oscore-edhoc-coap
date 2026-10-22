@@ -49,7 +49,9 @@ typedef enum {
   COAP_REQUEST_STATUS_MORE, /* Response received and there are more blocks */
   COAP_REQUEST_STATUS_FINISHED, /* Request finished */
   COAP_REQUEST_STATUS_TIMEOUT, /* Request Timeout after all retransmissions */
-  COAP_REQUEST_STATUS_BLOCK_ERROR /* Blocks in wrong order */
+  COAP_REQUEST_STATUS_BLOCK_ERROR, /* Blocks in wrong order */
+  COAP_REQUEST_STATUS_BLOCK_ERROR, /* Blocks in wrong order */
+  COAP_REQUEST_STATUS_SEND_ERROR /* Request could not be serialised or protected */
 } coap_request_status_t;
 
 const char*

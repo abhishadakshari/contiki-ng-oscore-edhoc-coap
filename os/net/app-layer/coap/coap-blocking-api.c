@@ -134,10 +134,21 @@ PT_THREAD(coap_blocking_request
         coap_set_header_block2(request, state->block_num, 0,
                                COAP_MAX_CHUNK_SIZE);
       }
+      coap_error_message = "";
       state->transaction->message_len = coap_serialize_message(request,
                                                               state->
                                                               transaction->
                                                               message);
+
+      if(state->transaction->message_len == 0){
+        /* Serialising or OSCORE protection failed: send nothing. The
+         * callback gets NULL, as for a timeout; coap_error_message says why. */
+        LOG_WARN("Could not serialise the request (%s), not sending it\n", coap_error_message);
+        coap_clear_transaction(state->transaction);
+        state->status = COAP_REQUEST_STATUS_SEND_ERROR;
+        request_callback(NULL);
+        PT_EXIT(&blocking_state->pt);
+      }
 
       coap_send_transaction(state->transaction);
       LOG_DBG("Requested #%"PRIu32" (MID %u)\n", state->block_num, request->mid);
@@ -146,6 +157,7 @@ PT_THREAD(coap_blocking_request
 
       if(!state->response) {
         LOG_WARN("Server not responding\n");
+        coap_error_message= "No response (Timeout)";
         state->status = COAP_REQUEST_STATUS_TIMEOUT;
         request_callback(NULL); /* Call the callback with NULL to signal timeout */
         PT_EXIT(&blocking_state->pt);

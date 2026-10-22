@@ -561,7 +561,12 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
 
 #ifndef WITH_GROUPCOM
   uint8_t option_value_buffer[15];
-  uint8_t content_buffer[COAP_MAX_CHUNK_SIZE + COSE_algorithm_AES_CCM_16_64_128_TAG_LEN];
+  /* oscore_serializer() writes the whole plaintext here before the size
+   * check below can reject it, so size for the worst case: code byte,
+   * options (at most COAP_MAX_HEADER_SIZE), payload marker, payload (at most
+   * COAP_MAX_CHUNK_SIZE), then the tag. COAP_MAX_PACKET_SIZE is
+   * COAP_MAX_HEADER_SIZE + COAP_MAX_CHUNK_SIZE (coap.h). */
+  uint8_t content_buffer[1 + COAP_MAX_PACKET_SIZE + 1 + COSE_algorithm_AES_CCM_16_64_128_TAG_LEN];
 #endif /* not WITH_GROUPCOM */
   uint8_t aad_buffer[35];
   uint8_t nonce_buffer[COSE_algorithm_AES_CCM_16_64_128_IV_LEN];
@@ -570,16 +575,24 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
   if (ctx == NULL)
   {
     LOG_ERR("No context in OSCORE!\n");
-    return PACKET_SERIALIZATION_ERROR;
+    return 0;
   }
 
   oscore_populate_cose(coap_pkt, cose, ctx, true);
 
   size_t plaintext_len = oscore_serializer(coap_pkt, content_buffer, plaintext_role);
-  if (plaintext_len > COAP_MAX_CHUNK_SIZE)
+   /* The ciphertext (plaintext + tag) becomes this message's payload, and
+   * coap_set_payload() and every parser cap a payload at COAP_MAX_CHUNK_SIZE. */
+  if (plaintext_len == 0)
   {
-    LOG_ERR("OSCORE Message to large (%zu > %u) to process.\n", plaintext_len, COAP_MAX_CHUNK_SIZE);
-    return PACKET_SERIALIZATION_ERROR;
+    LOG_ERR("OSCORE plaintext could not be serialised: %s\n", coap_error_message);
+    return 0;
+  }
+
+  if(plaintext_len + COSE_algorithm_AES_CCM_16_64_128_TAG_LEN > COAP_MAX_CHUNK_SIZE){
+    LOG_ERR("OSORE message too large (%zu + %u > %u)\n", plaintext_len, COSE_algorithm_AES_CCM_16_64_128_TAG_LEN, COAP_MAX_CHUNK_SIZE);
+    coap_error_message = "OSCORE: message too large for COAP_MAX_CHUNK_SIZE";
+    return 0;
   }
 
   // sets the content that should be encrypted
@@ -590,7 +603,7 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
   nanocbor_encoder_init(&aad_enc, aad_buffer, sizeof(aad_buffer));
   if (oscore_prepare_aad(coap_pkt, cose, &aad_enc, true) != NANOCBOR_OK)
   {
-    return INTERNAL_SERVER_ERROR_5_00;
+    return 0;
   }
 
   cose_encrypt0_set_aad(cose, aad_buffer, nanocbor_encoded_len(&aad_enc));
@@ -603,7 +616,7 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
     if (!oscore_set_exchange(coap_pkt->token, coap_pkt->token_len, ctx->sender_context.seq, ctx))
     {
       LOG_ERR("OSCORE Could not store exchange.\n");
-      return PACKET_SERIALIZATION_ERROR;
+      return 0;
     }
     printf("Storing exchange context sender_id: %02x\n",
            ctx->sender_context.sender_id[0]);
@@ -620,7 +633,7 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
   if (ciphertext_len < 0)
   {
     LOG_ERR("OSCORE internal error %d.\n", ciphertext_len);
-    return PACKET_SERIALIZATION_ERROR;
+    return 0;
   }
 
   // Partial IV shall NOT be included in responses if not a request
@@ -998,6 +1011,10 @@ size_t oscore_prepare_nested_message(coap_message_t *coap_pkt,
     uint8_t plaintext_role = is_innermost ? ROLE_CONFIDENTIAL : ROLE_CONFIDENTIAL_NESTED;
 
     len = oscore_prepare_message_role(&current_msg, target, plaintext_role);
+    if(len == 0){
+      LOG_ERR("Nested OSCORE: could not protect layer %d of %u\n", i, path->num_layers);
+      return 0;
+    }
 
     if (i > 0)
     {
