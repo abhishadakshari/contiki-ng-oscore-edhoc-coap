@@ -578,6 +578,12 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
     return 0;
   }
 
+   /* Never reuse a nonce. OSCORE_SEQ_MAX is the first unusable value. */
+  if(coap_is_request(coap_pkt) && ctx->sender_context.seq >= OSCORE_SEQ_MAX) {
+    LOG_ERR("OSCORE sender sequence number exhausted, derive a new context\n");
+    return 0;
+  }
+
   oscore_populate_cose(coap_pkt, cose, ctx, true);
 
   size_t plaintext_len = oscore_serializer(coap_pkt, content_buffer, plaintext_role);
@@ -1090,7 +1096,7 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
      * decides whether an unprotected response is acceptable. */
     return NO_ERROR;
   }
-  
+
   /* Step 2: for each remaining inner layer call oscore_decode_message
    * directly. After Step 1, 'received' has the inner OSCORE option
    * in object_security and the inner ciphertext in payload, no need to
