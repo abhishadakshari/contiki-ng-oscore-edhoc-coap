@@ -1026,6 +1026,15 @@ size_t oscore_prepare_nested_message(coap_message_t *coap_pkt,
   coap_message_t current_msg;
   memcpy(&current_msg, coap_pkt, sizeof(coap_message_t));
 
+  if (path->target_uri != NULL)
+  {
+    /* The innermost layer ends at a proxy: tell it where to forward. The
+     * message itself is not protected end to end, so it must carry no
+     * OSCORE option of its own into the innermost plaintext. */
+    coap_set_header_proxy_uri(&current_msg, path->target_uri);
+    oscore_clear_option(&current_msg, COAP_OPTION_OSCORE);
+  }
+
   /* Temporary buffer for intermediate OSCORE-protected messages. */
   static uint8_t temp_buf[COAP_MAX_PACKET_SIZE];
 
@@ -1049,8 +1058,12 @@ size_t oscore_prepare_nested_message(coap_message_t *coap_pkt,
 
     uint8_t *target = (i == 0) ? output_buf : temp_buf;
     const bool is_innermost = (i == path->num_layers - 1);
-    uint8_t plaintext_role = is_innermost ? ROLE_CONFIDENTIAL : ROLE_CONFIDENTIAL_NESTED;
-
+    /* ROLE_CONFIDENTIAL_NESTED also encrypts Proxy-Uri, Proxy-Scheme and
+     * Uri-Host, which the innermost layer must do when its peer is a proxy
+     * that reads them (target_uri set). */
+    uint8_t plaintext_role = (is_innermost && path->target_uri == NULL) ?
+                             ROLE_CONFIDENTIAL : ROLE_CONFIDENTIAL_NESTED;
+                             
     len = oscore_prepare_message_role(&current_msg, target, plaintext_role);
     if(len == 0){
       LOG_ERR("Nested OSCORE: could not protect layer %d of %u\n", i, path->num_layers);
@@ -1174,7 +1187,7 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
     coap_error_message = "Unexpected OSCORE layer";
     return OSCORE_DECRYPTION_ERROR;
   }
-  
+
   LOG_DBG("Code: %d\n", received->code);
   LOG_DBG("Payload: %.*s\n", (int)received->payload_len, (char *)received->payload);
   return NO_ERROR;

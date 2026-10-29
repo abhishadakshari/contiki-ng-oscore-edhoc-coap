@@ -42,5 +42,11 @@
 #define LOG_LEVEL_APP LOG_LEVEL_DBG
 #define LOG_CONF_LEVEL_COAP LOG_LEVEL_DBG
 
+/* Each extra layer adds about 40 bytes; 4 layers need more than the default
+ * 128-byte chunk */
+#if defined(NUM_LAYERS) && NUM_LAYERS >= 4
+#define REST_MAX_CHUNK_SIZE 160
+#endif
+
 #endif /* PROJECT_CONF_H_ */
 

@@ -56,9 +56,6 @@
 uint8_t master_secret[16] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10};
 uint8_t salt[8] = {0x9e, 0x7c, 0xa9, 0x22, 0x23, 0x78, 0x63, 0x40};
 /* sender/receiver IDs: [0] = CTX_C_P (client-proxy), [1] = CTX_C_S (client-server) */
-uint8_t sender_id[2][1] = { {0xAA},{0x01} };
-uint8_t receiver_id[2][1] = { {0xAA},{0x05} };
-uint8_t id_contexts[2][1] = { {0xAA},{0x01} };
 #endif /* WITH_OSCORE */
 
 /* Log configuration */
@@ -74,6 +71,41 @@ uint8_t id_contexts[2][1] = { {0xAA},{0x01} };
 #define PROXY_EP "coap://[fd00::1]:5685"
 #define SERVER_EP "coap://[fd00::1]:5675"
 
+/* Number of OSCORE layers: one per proxy plus one for the server.
+ * Set it when building: make TARGET=native nested-oscore-client.native NUM_LAYERS=3
+ * 2 matches the Java proxy and server in examples/java-nested. */
+#ifndef NUM_LAYERS
+#define NUM_LAYERS 2
+#endif
+
+/* Layer k uses the context shared with hop k: layer 0 = first proxy
+ * (outermost), layer NUM_LAYERS-1 = server (innermost).
+ * forward_to[k] is where hop k-1 forwards after removing its layer, so it is
+ * NULL for layer 0, which goes straight to PROXY_EP.
+ * The IDs and addresses of the extra proxies are placeholders: agree them
+ * with whoever runs those proxies. */
+#if NUM_LAYERS == 2
+static uint8_t sender_id[NUM_LAYERS][1]   = { {0xAA}, {0x01} };
+static uint8_t receiver_id[NUM_LAYERS][1] = { {0xAA}, {0x05} };
+static uint8_t id_context[NUM_LAYERS][1]  = { {0xAA}, {0x01} };
+static const char *forward_to[NUM_LAYERS] = { NULL, SERVER_EP };
+#elif NUM_LAYERS == 3
+#define PROXY2_EP "coap://[fd00::1]:5695"
+static uint8_t sender_id[NUM_LAYERS][1]   = { {0xAA}, {0xBB}, {0x01} };
+static uint8_t receiver_id[NUM_LAYERS][1] = { {0xAA}, {0xBB}, {0x05} };
+static uint8_t id_context[NUM_LAYERS][1]  = { {0xAA}, {0xBB}, {0x01} };
+static const char *forward_to[NUM_LAYERS] = { NULL, PROXY2_EP, SERVER_EP };
+#elif NUM_LAYERS == 4
+#define PROXY2_EP "coap://[fd00::1]:5695"
+#define PROXY3_EP "coap://[fd00::1]:5705"
+static uint8_t sender_id[NUM_LAYERS][1]   = { {0xAA}, {0xBB}, {0xCC}, {0x01} };
+static uint8_t receiver_id[NUM_LAYERS][1] = { {0xAA}, {0xBB}, {0xCC}, {0x05} };
+static uint8_t id_context[NUM_LAYERS][1]  = { {0xAA}, {0xBB}, {0xCC}, {0x01} };
+static const char *forward_to[NUM_LAYERS] = { NULL, PROXY2_EP, PROXY3_EP, SERVER_EP };
+#else
+#error "Add contexts and addresses for this NUM_LAYERS"
+#endif
+
 PROCESS(er_example_client, "Nested OSCORE Example Client");
 AUTOSTART_PROCESSES(&er_example_client);
 
@@ -88,13 +120,21 @@ client_chunk_handler(coap_message_t *response)
 {
   const uint8_t *chunk;
 
+  if(response == NULL) {
+    /* Timeout, or the request could not be protected and was not sent;
+     * coap_error_message says which (e.g. "OSCORE: message too large ...") */
+    printf("No response: %s\n", coap_error_message);
+    return;
+  }
+
   int len = coap_get_payload(response, &chunk);
   printf("response: \n");
   printf("|%.*s", len, (char *)chunk);
 }
 
-static oscore_ctx_t proxy_context;
-static oscore_ctx_t server_context;
+static oscore_ctx_t contexts[NUM_LAYERS];
+static oscore_layer_t layers[NUM_LAYERS];
+static oscore_path_t client_path;
 
 PROCESS_THREAD(er_example_client, ev, data)
 {
@@ -108,8 +148,19 @@ PROCESS_THREAD(er_example_client, ev, data)
   coap_endpoint_parse(SERVER_EP, strlen(SERVER_EP), &server_ep);
 
   #ifdef WITH_OSCORE
-  oscore_derive_ctx(&proxy_context, master_secret, 16, salt, 8, 10, sender_id[0], 1, receiver_id[0], 1, id_contexts[0], 1);
-  oscore_derive_ctx(&server_context, master_secret, 16, salt, 8, 10, sender_id[1], 1, receiver_id[1], 1, id_contexts[1], 1);
+  /* One context and one layer per hop, then register the path once. */
+  for(int k = 0; k < NUM_LAYERS; k++) {
+    oscore_derive_ctx(&contexts[k], master_secret, 16, salt, 8, 10,
+                      sender_id[k], 1, receiver_id[k], 1, id_context[k], 1);
+    layers[k].ctx = &contexts[k];
+    layers[k].forward_to_uri = forward_to[k];
+  }
+  client_path.layers = layers;
+  client_path.num_layers = NUM_LAYERS;
+  if(!oscore_ep_path_set(&proxy_ep, &client_path)) {
+    printf("Could not set the OSCORE path (NUM_LAYERS %d)\n", NUM_LAYERS);
+  }
+  printf("Nested OSCORE client with %d layers\n", NUM_LAYERS);
   #endif /* WITH_OSCORE */
 
   
@@ -133,21 +184,7 @@ PROCESS_THREAD(er_example_client, ev, data)
       coap_init_message(request, COAP_TYPE_NON, COAP_GET, 0);
       coap_set_header_uri_path(request, SERVICE_URI);
 
-      static oscore_layer_t layers[2];
-      static oscore_path_t client_path;
-
-      layers[0].forward_to_uri = NULL;          /* outermost layer: destination is the CoAP endpoint, no Proxy-Uri */
-      layers[0].ctx = &proxy_context;
-
-      layers[1].forward_to_uri = SERVER_EP;    // inner layer
-      layers[1].ctx = &server_context;
-
-      client_path.layers = layers;
-      client_path.num_layers = 2;
-
       request->dest_ep = &proxy_ep;
-
-      oscore_ep_path_set(&proxy_ep, &client_path);
 
       // const char msg[] = "Toggle!";
       // coap_set_payload(request, (uint8_t *)msg, sizeof(msg) - 1);

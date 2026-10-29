@@ -31,6 +31,10 @@ ifeq ($(MAKE_TARGET_MODE),client)
     CFLAGS += -DOSCORE_CLIENT_MODE
 endif
 
+ifdef NUM_LAYERS
+  CFLAGS += -DNUM_LAYERS=$(NUM_LAYERS)
+endif
+
 include $(CONTIKI)/Makefile.include
 
 # border router rules
