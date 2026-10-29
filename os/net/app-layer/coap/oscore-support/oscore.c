@@ -1063,8 +1063,11 @@ size_t oscore_prepare_nested_message(coap_message_t *coap_pkt,
        * takes it as its input. Then add the URI to forward to for this hop:
        * after the outer OSCORE layer is decrypted by the proxy it
        * will find the Proxy-Uri and know where to forward the inner message. */
-      coap_parse_message_no_decrypt(&current_msg, temp_buf, len);
-      coap_set_header_proxy_uri(&current_msg, path->layers[i].forward_to_uri);
+      coap_parse_message_no_decrypt(&current_msg, temp_buf, len);     
+      if (path->layers[i].forward_to_uri != NULL)
+      {
+        coap_set_header_proxy_uri(&current_msg, path->layers[i].forward_to_uri);
+      }
     }
   }
 
@@ -1107,7 +1110,20 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
   if (path == NULL || path->num_layers <= 0 || !path->layers)
   {
     /* Not nested OSCORE, plain parse+decrypt. */
-    return coap_parse_message(received, coap_pkt, coap_pkt_len);
+    coap_status_t status = coap_parse_message(received, coap_pkt, coap_pkt_len);
+    if (status == NO_ERROR && received->object_security != NULL)
+    {
+      LOG_ERR("OSCORE: response has more layers than the request\n");
+      coap_error_message = "Unexpected OSCORE layer";
+      return OSCORE_DECRYPTION_ERROR;
+    }
+    return status;
+  }
+  if (path->num_layers > OSCORE_MAX_LAYERS)
+  {
+    LOG_ERR("Nested OSCORE: %u layers exceeds OSCORE_MAX_LAYERS (%u)\n",
+            path->num_layers, OSCORE_MAX_LAYERS);
+    return OSCORE_DECRYPTION_ERROR;
   }
 
   /* Step 1: parse the buffer from the wire and decrypt the outermost OSCORE layer.
@@ -1150,6 +1166,15 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
     }
   }
 
+    /* Proxies draft section 2.6: once every layer we added is removed, an
+   * OSCORE option still present means we must stop. */
+  if (received->object_security != NULL)
+  {
+    LOG_ERR("Nested OSCORE: response has more layers than the request\n");
+    coap_error_message = "Unexpected OSCORE layer";
+    return OSCORE_DECRYPTION_ERROR;
+  }
+  
   LOG_DBG("Code: %d\n", received->code);
   LOG_DBG("Payload: %.*s\n", (int)received->payload_len, (char *)received->payload);
   return NO_ERROR;
