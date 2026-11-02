@@ -10,6 +10,7 @@ typedef struct {
 typedef struct {
   oscore_layer_t *layers;
   uint8_t num_layers;
+  const char *target_uri;
 } oscore_path_t;
 
 /* Proxies draft section 2.1: the most OSCORE layers this node will apply
