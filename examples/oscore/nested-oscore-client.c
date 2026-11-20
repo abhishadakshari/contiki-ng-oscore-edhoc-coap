@@ -63,6 +63,24 @@ uint8_t salt[8] = {0x9e, 0x7c, 0xa9, 0x22, 0x23, 0x78, 0x63, 0x40};
 #define LOG_MODULE "client"
 #define LOG_LEVEL  LOG_LEVEL_COAP
 
+#include <stdio.h>
+
+#if CONTIKI_TARGET_NATIVE
+/* Native only: record the outcome for summarise-chain.py */
+#define RESULT_FILE "../java-nested/logs/client-result.txt"
+static void
+record_result(const char *mode, const char *line)
+{
+  FILE *f = fopen(RESULT_FILE, mode);
+  if(f != NULL) {
+    fprintf(f, "%s\n", line);
+    fclose(f);
+  }
+}
+#else
+#define record_result(mode, line)
+#endif
+
 #define TOGGLE_INTERVAL 20
 
 /* Update these addresses to match setup. */
@@ -119,17 +137,23 @@ void
 client_chunk_handler(coap_message_t *response)
 {
   const uint8_t *chunk;
+  char line[96];
 
   if(response == NULL) {
     /* Timeout, or the request could not be protected and was not sent;
      * coap_error_message says which (e.g. "OSCORE: message too large ...") */
     printf("No response: %s\n", coap_error_message);
+    snprintf(line, sizeof(line), "result FAILED %s",
+             coap_error_message ? coap_error_message : "");
+    record_result("a", line);
     return;
   }
 
   int len = coap_get_payload(response, &chunk);
   printf("response: \n");
   printf("|%.*s", len, (char *)chunk);
+  snprintf(line, sizeof(line), "result OK %.*s", len, (char *)chunk);
+  record_result("a", line);
 }
 
 static oscore_ctx_t contexts[NUM_LAYERS];
@@ -161,6 +185,12 @@ PROCESS_THREAD(er_example_client, ev, data)
     printf("Could not set the OSCORE path (NUM_LAYERS %d)\n", NUM_LAYERS);
   }
   printf("Nested OSCORE client with %d layers\n", NUM_LAYERS);
+  {
+    char line[48];
+    snprintf(line, sizeof(line), "start layers=%d chunk=%d",
+             NUM_LAYERS, COAP_MAX_CHUNK_SIZE);
+    record_result("w", line);
+  }
   #endif /* WITH_OSCORE */
 
   
