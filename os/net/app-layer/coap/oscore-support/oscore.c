@@ -621,7 +621,7 @@ oscore_prepare_message_role(coap_message_t *coap_pkt, uint8_t *buffer,
   }
 
   if(plaintext_len + COSE_algorithm_AES_CCM_16_64_128_TAG_LEN > COAP_MAX_CHUNK_SIZE){
-    LOG_ERR("OSORE message too large (%zu + %u > %u)\n", plaintext_len, COSE_algorithm_AES_CCM_16_64_128_TAG_LEN, COAP_MAX_CHUNK_SIZE);
+    LOG_ERR("OSCORE message too large (%zu + %u > %u)\n", plaintext_len, COSE_algorithm_AES_CCM_16_64_128_TAG_LEN, COAP_MAX_CHUNK_SIZE);
     coap_error_message = "OSCORE: message too large for COAP_MAX_CHUNK_SIZE";
     return 0;
   }
@@ -1015,6 +1015,8 @@ size_t oscore_prepare_nested_message(coap_message_t *coap_pkt,
     /* Proxies draft section 2.1: do not send a request needing more layers */
     LOG_ERR("Nested OSCORE: %u layers exceeds OSCORE_MAX_LAYERS (%u)\n",
             path->num_layers, OSCORE_MAX_LAYERS);
+    coap_error_message = "OSCORE: more layers than OSCORE_MAX_LAYERS";
+
     return 0;
   }
 

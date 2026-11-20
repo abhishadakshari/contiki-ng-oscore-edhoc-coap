@@ -38,6 +38,13 @@ oscore_ep_path_set(const coap_endpoint_t *ep, oscore_path_t *path)
   }
 
   for (int i = 0; i < OSCORE_MAX_PATHS; i++) {
+    if (path_table[i].in_use && endpoint_equals(&path_table[i].ep, ep)) {
+      path_table[i].path = path;
+      return true;
+    }
+  }
+
+  for (int i = 0; i < OSCORE_MAX_PATHS; i++) {
     if (!path_table[i].in_use) {
       memcpy(&path_table[i].ep, ep, sizeof(coap_endpoint_t));
       path_table[i].path = path;
