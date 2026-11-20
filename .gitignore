@@ -67,3 +67,9 @@ COOJA.testlog
 summary
 tests/18-coap-lwm2m/Californium.properties
 tests/18-coap-lwm2m/leshan-server-demo*.jar
+
+
+# Proxy chain test output (start-chain.sh / summarise-chain.py)
+examples/java-nested/logs/
+examples/java-nested/results/
+examples/java-nested/classes/
