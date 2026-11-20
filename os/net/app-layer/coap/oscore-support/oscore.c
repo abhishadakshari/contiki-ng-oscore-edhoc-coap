@@ -1113,6 +1113,7 @@ coap_status_t oscore_decode_nested_message(coap_message_t *received,
   return status;
 }
 
+static bool oscore_unprotected_code_allowed(uint8_t code, bool via_proxy);
 coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *coap_pkt, size_t coap_pkt_len, const coap_endpoint_t *src)
 {
   oscore_path_t *path = oscore_ep_path_get(src);
@@ -1167,6 +1168,34 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
    * re-parse buffer. */
   for (int i = path->num_layers - 2; i >= 0; i--)
   {
+
+    if (received->object_security == NULL)
+    {
+      /* Proxies draft section 2.5: a hop that fails protects its error
+       * response only with the layers it removed, so a proxy that could not
+       * remove its layer replies unprotected and the hops before it add
+       * theirs. The plaintext then holds a plain error, not another layer. */
+      static char reason[64];
+      const int hop = path->num_layers - 1 - i;   /* index of the hop that replied */
+      while (oscore_get_exchange(received->token, received->token_len) != NULL)
+      {
+        oscore_remove_exchange(received->token, received->token_len);
+      }
+      if (!oscore_unprotected_code_allowed(received->code, true))
+      {
+        LOG_ERR("Nested OSCORE: hop %d sent an unprotected %u.%02u\n",
+                hop + 1, received->code >> 5, received->code & 0x1f);
+        coap_error_message = "Unprotected response from an inner hop";
+        return OSCORE_DECRYPTION_ERROR;
+      }
+      snprintf(reason, sizeof(reason), "Error %u.%02u from hop %d of %u",
+               received->code >> 5, received->code & 0x1f, hop + 1, path->num_layers);
+      LOG_WARN("Nested OSCORE: %s (only %d of %u layers came back)\n",
+               reason, hop, path->num_layers);
+      coap_error_message = reason;
+      return NO_ERROR;
+    }
+    
     LOG_DBG("====================================\n");
     LOG_DBG("Removing inner OSCORE layer %d\n", i);
     LOG_DBG("====================================\n");
