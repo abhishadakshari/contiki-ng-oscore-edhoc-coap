@@ -41,6 +41,7 @@ EXPECTED = {2: (66, 42), 3: (104, 53), 4: (142, 64)}
 UDP_LINE = re.compile(
     r"UDPConnector \((?P<label>.*?)\) (?P<dir>sent|received) (?P<n>\d+) bytes "
     r"(?:to|from) \[(?P<addr>[^\]]+)\]:(?P<port>\d+)")
+FORWARD_LINE = re.compile(r"ProxyCoapClientResource forwards (?P<type>CON|NON)-")
 DONE_LINE = re.compile(r"Remote Exchange\[R1, .*?\] completed (?:CON|NON|ACK|RST)-(?P<code>\d\.\d\d)")
 JAVA_PROBLEM = re.compile(r" (ERROR|WARN) \[(?!Configuration)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -56,7 +57,8 @@ def read(path):
 
 def parse_component(lines, own_port, next_port):
     """Split one Java log into the four directions, in order of appearance."""
-    ev = {"req_in": [], "req_out": [], "resp_in": [], "resp_out": [], "codes": [], "problems": []}
+    ev = {"req_in": [], "req_out": [], "resp_in": [], "resp_out": [], "codes": [], "types": [],
+          "problems": []}
     for line in lines:
         m = UDP_LINE.search(line)
         if m:
@@ -67,6 +69,10 @@ def parse_component(lines, own_port, next_port):
                 ev["req_in" if on_own_port else "resp_in"].append(n)
             else:
                 ev["req_out" if port == next_port else "resp_out"].append(n)
+            continue
+        m = FORWARD_LINE.search(line)
+        if m:
+            ev["types"].append(m.group("type"))
             continue
         m = DONE_LINE.search(line)
         if m:
@@ -203,7 +209,19 @@ def main():
         client_req = client_req if client_req is not None else req[0]
         client_resp = resp[-1]
         result = pick(client["results"], i) if client else None
-        if result is None:
+        req_type = pick(hops[0][1]["types"], i)
+        short = None
+        if result is None and req_type == "NON":
+            short = ("NON: response delivered, not recordable" if client_resp is not None
+                     else "NON: no response reached the client")
+            if client_resp is not None:
+                outcome = ("NON request: the response reached the client (%d bytes) but cannot be "
+                           "recorded, because Contiki's blocking request API drops responses to NON "
+                           "requests before the handler runs. Check the client's debug output for "
+                           "the decrypted payload." % client_resp)
+            else:
+                outcome = "NON request: no response reached the client, and none can be recorded"
+        elif result is None:
             outcome = "unknown (client log missing)" if client is None else "no response printed"
         elif result[0] == "ok":
             outcome = "OK: " + result[1]
@@ -220,6 +238,7 @@ def main():
 
         out.append("### Request %d" % (i + 1))
         out.append("")
+        out.append("- **Request type:** " + fmt(req_type))
         out.append("- **Outcome:** " + outcome)
         out.append("- **Client request / response:** %s / %s bytes" % (fmt(client_req), fmt(client_resp)))
         out.append("- **Matches expected sizes:** " + match)
@@ -244,8 +263,9 @@ def main():
             "client_response_bytes": fmt(client_resp),
             "request_bytes_per_hop": " > ".join(fmt(x) for x in req),
             "response_bytes_per_hop": " > ".join(fmt(x) for x in resp),
+            "request_type": fmt(req_type),
             "server_code": fmt(pick(server["codes"], i)),
-            "outcome": outcome,
+            "outcome": short or outcome,
             "matches_expected": match,
         })
 
