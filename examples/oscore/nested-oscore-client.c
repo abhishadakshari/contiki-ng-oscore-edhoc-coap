@@ -102,7 +102,16 @@ record_result(const char *mode, const char *line)
  * NULL for layer 0, which goes straight to PROXY_EP.
  * The IDs and addresses of the extra proxies are placeholders: agree them
  * with whoever runs those proxies. */
-#if NUM_LAYERS == 2
+#if NUM_LAYERS == 1
+/* No proxy: the only layer is the server's, and the request goes straight
+ * to the server. */
+#undef PROXY_EP
+#define PROXY_EP SERVER_EP
+static uint8_t sender_id[NUM_LAYERS][1]   = { {0x01} };
+static uint8_t receiver_id[NUM_LAYERS][1] = { {0x05} };
+static uint8_t id_context[NUM_LAYERS][1]  = { {0x01} };
+static const char *forward_to[NUM_LAYERS] = { NULL };
+#elif NUM_LAYERS == 2
 static uint8_t sender_id[NUM_LAYERS][1]   = { {0xAA}, {0x01} };
 static uint8_t receiver_id[NUM_LAYERS][1] = { {0xAA}, {0x05} };
 static uint8_t id_context[NUM_LAYERS][1]  = { {0xAA}, {0x01} };

@@ -36,12 +36,12 @@ PROXY_IDS = ["AA", "BB", "CC"]
 
 # Sizes measured on 20 Nov 2026 with the hello/1 request (bytes on the wire
 # between the client and the first hop). Only valid for that request.
-EXPECTED = {2: (66, 42), 3: (104, 53), 4: (142, 64)}
+EXPECTED = {1: (28, 31), 2: (66, 42), 3: (104, 53), 4: (142, 64)}
 
 UDP_LINE = re.compile(
     r"UDPConnector \((?P<label>.*?)\) (?P<dir>sent|received) (?P<n>\d+) bytes "
     r"(?:to|from) \[(?P<addr>[^\]]+)\]:(?P<port>\d+)")
-FORWARD_LINE = re.compile(r"ProxyCoapClientResource forwards (?P<type>CON|NON)-")
+FORWARD_LINE = re.compile(r"(?:ProxyCoapClientResource forwards |request was )(?P<type>CON|NON)")
 DONE_LINE = re.compile(r"Remote Exchange\[R1, .*?\] completed (?:CON|NON|ACK|RST)-(?P<code>\d\.\d\d)")
 JAVA_PROBLEM = re.compile(r" (ERROR|WARN) \[(?!Configuration)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -148,11 +148,12 @@ def main():
             k, v = line.split("=", 1)
             chain_info[k.strip()] = v.strip()
 
-    n_proxies = int(chain_info.get("proxies", 0))
-    if n_proxies == 0:
+    if "proxies" in chain_info:
+        n_proxies = int(chain_info["proxies"])
+    else:
         n_proxies = sum(os.path.exists(os.path.join(LOGS, "proxy%d.log" % k)) for k in (1, 2, 3))
-    if n_proxies == 0:
-        sys.exit("No proxy logs in %s - run start-chain.sh first." % LOGS)
+    if not os.path.exists(os.path.join(LOGS, "server.log")):
+        sys.exit("No server log in %s - run start-chain.sh first." % LOGS)
     started = chain_info.get("started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     # One entry per hop, in order from the client: proxy 1 ... proxy N, server.
@@ -197,7 +198,7 @@ def main():
         out.append("COAP_MAX_CHUNK_SIZE on the client: %d" % client["chunk"])
         out.append("")
     if n_requests == 0:
-        out.append("No request reached proxy 1. Was the chain started within 20 s of the client?")
+        out.append("No request reached the first hop. Was the chain started within 20 s of the client?")
         out.append("")
 
     rows = []

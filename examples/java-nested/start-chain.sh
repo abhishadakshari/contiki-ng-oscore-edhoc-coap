@@ -1,5 +1,6 @@
 #!/bin/sh
-# Start the Java server and a chain of 1-3 OSCORE-capable proxies.
+# Start the Java server and a chain of 0-3 OSCORE-capable proxies
+# (0 = server only, for a 1-layer client).
 #
 # Run inside the contiker container, from examples/java-nested, AFTER the
 # client is running (it creates fd00::1 on tun0):
