@@ -6,7 +6,8 @@ static const char* coap_request_status_to_string_table[] = {
     "MORE",
     "FINISHED",
     "TIMEOUT",
-    "BLOCK_ERROR"
+    "BLOCK_ERROR",
+    "SEND_ERROR"
 };
 
 const char*
