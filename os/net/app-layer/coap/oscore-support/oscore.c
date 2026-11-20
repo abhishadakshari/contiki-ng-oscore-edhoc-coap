@@ -1195,7 +1195,7 @@ coap_status_t oscore_decode_nested_response(coap_message_t *received, uint8_t *c
       coap_error_message = reason;
       return NO_ERROR;
     }
-    
+
     LOG_DBG("====================================\n");
     LOG_DBG("Removing inner OSCORE layer %d\n", i);
     LOG_DBG("====================================\n");
@@ -1279,9 +1279,9 @@ oscore_handle_message(coap_message_t *msg,
 {
   coap_status_t status;
 #ifdef OSCORE_CLIENT_MODE
-  status = oscore_decode_message_response(msg, buf, len, src);
+  status = oscore_decode_nested_response(msg, buf, len, src);
 #else
-    status = oscore_decode_message_response(msg, buf, len, src);
+    status = oscore_decode_nested_message(msg, buf, len, src);
 #endif
   if (status == NO_ERROR){
     status = oscore_check_response_protected(msg, src);
