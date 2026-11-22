@@ -72,18 +72,18 @@ public class EdhocServer extends CoapServer {
 	private final static Provider EdDSA = new EdDSASecurityProvider();
 	
 	// The authentication method to include in EDHOC message_1 (relevant only when Initiator)
-	private static int authenticationMethod = Constants.EDHOC_AUTH_METHOD_0;
+	private static int authenticationMethod = Constants.EDHOC_AUTH_METHOD_3;   // was EDHOC_AUTH_METHOD_0
 	
-    // The type of the authentication credential of this peer (same type for all its credentials)
+	// The type of the authentication credential of this peer (same type for all its credentials)
     // Possible values: CRED_TYPE_CWT ; CRED_TYPE_CCS ; CRED_TYPE_X509
-    private static int credType = Constants.CRED_TYPE_X509;
-    
-    // The type of the credential identifier to use as ID_CRED_R in EDHOC message_2 or as ID_CRED_I in EDHOC message_3,
+	private static int credType = Constants.CRED_TYPE_CCS;                     // was CRED_TYPE_X509
+
+	// The type of the credential identifier to use as ID_CRED_R in EDHOC message_2 or as ID_CRED_I in EDHOC message_3,
     // i.e., for this peer to indicate its own authentication credential to the other peer.
     // Possible values: ID_CRED_TYPE_KID ; ID_CRED_TYPE_CWT ; ID_CRED_TYPE_CCS ;
     //                  ID_CRED_TYPE_X5T ; ID_CRED_TYPE_X5U ; ID_CRED_TYPE_X5CHAIN
-    private static int idCredType = Constants.ID_CRED_TYPE_X5T;
-    
+	private static int idCredType = Constants.ID_CRED_TYPE_KID;                // was ID_CRED_TYPE_X5T
+	    
     // The trust model used to validate authentication credentials of other peers
     private static int trustModel = Constants.TRUST_MODEL_NO_LEARNING;
     
@@ -197,7 +197,7 @@ public class EdhocServer extends CoapServer {
 			boolean udp = true;
 
 			CoapEndpoint.Builder builder = CoapEndpoint.builder();
-			builder.setInetSocketAddress(new InetSocketAddress("localhost", 5686));
+			builder.setInetSocketAddress(new InetSocketAddress("fd00::1", 5686));   // was "localhost" 
 			CoapEndpoint serverEndpoint = builder.build();
 			
 			EdhocServer server = new EdhocServer();
@@ -400,9 +400,8 @@ public class EdhocServer extends CoapServer {
 	private static void setupSupportedCipherSuites() {
 		
 		// Add the supported cipher suites in decreasing order of preference
-		
-		supportedCipherSuites.add(Constants.EDHOC_CIPHER_SUITE_0);
-		supportedCipherSuites.add(Constants.EDHOC_CIPHER_SUITE_1);
+		// Suites 0 and 1 removed since Contiki-NG doesn't support them
+
 		supportedCipherSuites.add(Constants.EDHOC_CIPHER_SUITE_2);
 		supportedCipherSuites.add(Constants.EDHOC_CIPHER_SUITE_3);
 				
@@ -692,9 +691,9 @@ public class EdhocServer extends CoapServer {
 			CBORObject idCredP256dh = null;
 			CBORObject ccsObjectP256dh = null;
 			
-			// If the type of credential identifier is 'kid', use 0x0a,
-			// i.e. the serialized ID_CRED_X is 0xa1, 0x04, 0x41, 0x0a
-			byte[] kidP256dh = new byte[] {(byte) 0x0a};
+			// If the type of credential identifier is 'kid', use 0x32 (RFC 9529 Trace 2),
+			// i.e. the serialized ID_CRED_X is 0xa1, 0x04, 0x41, 0x32
+			byte[] kidP256dh = new byte[] {(byte) 0x32};
 			
 			// Build the key pair
 			
@@ -715,7 +714,7 @@ public class EdhocServer extends CoapServer {
 		        
 		        // These serializations have to be prepared manually, in order to ensure that
 		        // the CBOR map used as CRED has its parameters encoded in bytewise lexicographic order
-	            credP256dh = StringUtil.hex2ByteArray("A2026008A101A5010202410A2001215820BBC34960526EA4D32E940CAD2A234148DDC21791A12AFBCBAC93622046DD44F02258204519E257236B2A0CE2023F0931F1F386CA7AFDA64FCDE0108C224C51EABF6072");
+	            credP256dh = StringUtil.hex2ByteArray("A2026B6578616D706C652E65647508A101A501020241322001215820BBC34960526EA4D32E940CAD2A234148DDC21791A12AFBCBAC93622046DD44F02258204519E257236B2A0CE2023F0931F1F386CA7AFDA64FCDE0108C224C51EABF6072");
 		        break;
 		    case Constants.CRED_TYPE_X509:
 		        // The x509 certificate of this peer
@@ -988,8 +987,8 @@ public class EdhocServer extends CoapServer {
 	    
 		// If the type of credential identifier is 'kid', use 0x03,
 		// i.e. the serialized ID_CRED_X is 0xa1, 0x04, 0x41, 0x03
-		byte[] peer1KidP256DH = new byte[] {(byte) 0x03};
-		
+		byte[] peer1KidP256DH = new byte[] {(byte) 0x2b};     // was 0x03		
+
 		// Build the public key
 		
 		peerPublicKeyBinary = StringUtil.hex2ByteArray("ac75e9ece3e50bfc8ed60399889522405c47bf16df96660a41298cb4307f7eb6");
@@ -1007,8 +1006,7 @@ public class EdhocServer extends CoapServer {
 		
 		// These serializations have to be prepared manually, in order to ensure that
 		// the CBOR map used as CRED has its parameters encoded in bytewise lexicographic order
-		peerCred = StringUtil.hex2ByteArray("A2026008A101A501020241032001215820AC75E9ECE3E50BFC8ED60399889522405C47BF16DF96660A41298CB4307F7EB62258206E5DE611388A4B8A8211334AC7D37ECB52A387D257E6DB3C2A93DF21FF3AFFC8");
-		
+		peerCred = StringUtil.hex2ByteArray("A2027734322D35302D33312D46462D45462D33372D33322D333908A101A5010202412B2001215820AC75E9ECE3E50BFC8ED60399889522405C47BF16DF96660A41298CB4307F7EB62258206E5DE611388A4B8A8211334AC7D37ECB52A387D257E6DB3C2A93DF21FF3AFFC8");		
 		peer1IdCredP256DHkccs = Util.buildIdCredKccs(peer1CcsObjectP256DH); // ID_CRED as 'kccs'
 		peer1IdCredP256DHkid = Util.buildIdCredKid(peer1KidP256DH); // ID_CRED as 'kid'
 		
