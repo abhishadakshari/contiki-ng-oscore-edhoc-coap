@@ -69,6 +69,10 @@
 #endif /* NETSTACK_CONF_WITH_IPV6 */
 
 /* Log configuration */
+#include "lib/csprng.h"   /* seeded below; used by EDHOC's ECC */
+#if CSPRNG_ENABLED
+#include <sys/random.h>
+#endif
 #include "sys/log.h"
 #define LOG_MODULE "Native"
 #define LOG_LEVEL LOG_LEVEL_MAIN
@@ -254,6 +258,16 @@ platform_init_stage_one()
   gpio_hal_init();
   button_hal_init();
   leds_init();
+#if CSPRNG_ENABLED
+  /* Seed the CSPRNG from the OS (as newer Contiki-NG does), otherwise
+   * EDHOC cannot generate ephemeral keys. */
+  {
+    struct csprng_seed seed;
+    if(getrandom(seed.u8, CSPRNG_SEED_LEN, 0) == CSPRNG_SEED_LEN) {
+      csprng_feed(&seed);
+    }
+  }
+#endif /* CSPRNG_ENABLED */
   return;
 }
 /*---------------------------------------------------------------------------*/

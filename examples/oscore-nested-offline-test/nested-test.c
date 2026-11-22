@@ -17,7 +17,7 @@
 #include "oscore.h"
 #include "oscore-context.h"
 #include "oscore-layer.h"
-#include "cose.h"
+#include "oscore-cose.h"
 #include "nanocbor/nanocbor.h"
 
 #define MAX_N 5                       /* largest number of layers tried */

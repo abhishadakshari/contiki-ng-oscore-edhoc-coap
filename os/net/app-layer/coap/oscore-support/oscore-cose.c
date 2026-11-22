@@ -37,7 +37,7 @@
  */
 
 
-#include "cose.h"
+#include "oscore-cose.h"
 #include "oscore-crypto.h"
 #include "string.h"
 

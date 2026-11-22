@@ -43,7 +43,7 @@
 
 #include "coap-constants.h"
 #include "coap-endpoint.h"
-#include "cose.h"
+#include "oscore-cose.h"
 
 #include "sliding-window.h"
 

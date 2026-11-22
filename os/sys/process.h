@@ -98,7 +98,8 @@ typedef unsigned char process_num_events_t;
 #define PROCESS_EVENT_EXITED          0x87
 #define PROCESS_EVENT_TIMER           0x88
 #define PROCESS_EVENT_COM             0x89
-#define PROCESS_EVENT_MAX             0x8a
+#define PROCESS_EVENT_UNLOCKED        0x8a
+#define PROCESS_EVENT_MAX             0x8b
 
 #define PROCESS_BROADCAST NULL
 #define PROCESS_ZOMBIE ((struct process *)0x1)

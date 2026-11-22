@@ -35,7 +35,7 @@
 #include <string.h>
 #include "contiki.h"
 #include "oscore-crypto.h"
-#include "cose.h"
+#include "oscore-cose.h"
 
 #include "dev/crypto.h"
 

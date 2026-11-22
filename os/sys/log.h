@@ -118,6 +118,7 @@ extern int curr_log_level_coap;
 extern int curr_log_level_snmp;
 extern int curr_log_level_lwm2m;
 extern int curr_log_level_main;
+extern int curr_log_level_edhoc;
 
 extern struct log_module all_modules[];
 
@@ -133,6 +134,7 @@ extern struct log_module all_modules[];
 #define LOG_LEVEL_SNMP                        MIN((LOG_CONF_LEVEL_SNMP), curr_log_level_snmp)
 #define LOG_LEVEL_LWM2M                       MIN((LOG_CONF_LEVEL_LWM2M), curr_log_level_lwm2m)
 #define LOG_LEVEL_MAIN                        MIN((LOG_CONF_LEVEL_MAIN), curr_log_level_main)
+#define LOG_LEVEL_EDHOC                       MIN((LOG_CONF_LEVEL_EDHOC), curr_log_level_edhoc)
 
 /* Main log function */
 
@@ -222,6 +224,18 @@ extern struct log_module all_modules[];
 #define LOG_INFO_BYTES(data, length)    LOG_BYTES(LOG_LEVEL_INFO, data, length)
 #define LOG_DBG_BYTES(data, length)     LOG_BYTES(LOG_LEVEL_DBG, data, length)
 
+/* String logging, used by EDHOC (added from newer Contiki-NG) */
+#define LOG_STRING(level, data, length) do {  \
+                           if(level <= (LOG_LEVEL)) { \
+                             log_string(data, length); \
+                           } \
+                         } while (0)
+#define LOG_PRINT_STRING(data, length)  LOG_STRING(0, data, length)
+#define LOG_ERR_STRING(data, length)    LOG_STRING(LOG_LEVEL_ERR, data, length)
+#define LOG_WARN_STRING(data, length)   LOG_STRING(LOG_LEVEL_WARN, data, length)
+#define LOG_INFO_STRING(data, length)   LOG_STRING(LOG_LEVEL_INFO, data, length)
+#define LOG_DBG_STRING(data, length)    LOG_STRING(LOG_LEVEL_DBG, data, length)
+
 /* For checking log level.
    As this builds on curr_log_level variables, this should not be used
    in pre-processor macros. Use in a C 'if' statement instead, e.g.:
@@ -278,6 +292,7 @@ void log_lladdr_compact(const linkaddr_t *lladdr);
  * \param length The length of the byte array
 */
 void log_bytes(const void *data, size_t length);
+void log_string(const char *text, size_t length);
 
 /**
  * Sets a log level at run-time. Logs are included in the firmware via

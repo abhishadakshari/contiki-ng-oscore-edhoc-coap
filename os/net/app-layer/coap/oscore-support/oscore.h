@@ -41,7 +41,7 @@
 #define _OSCORE_H
 
 #include "coap.h"
-#include "cose.h"
+#include "oscore-cose.h"
 #include "oscore-context.h"
 #include "coap-engine.h"
 #include "oscore-association.h"

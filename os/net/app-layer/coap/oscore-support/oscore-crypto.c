@@ -40,7 +40,7 @@
 #include "oscore-crypto.h"
 #include "ccm-star.h"
 #include <string.h>
-#include "cose.h"
+#include "oscore-cose.h"
 #include <stdio.h>
 #include "dtls-hmac.h"
 #include "assert.h"

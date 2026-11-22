@@ -37,8 +37,8 @@
  */
 
 
-#ifndef _COSE_H
-#define _COSE_H
+#ifndef _OSCORE_COSE_H
+#define _OSCORE_COSE_H
 
 #include <stddef.h>
 #include <stdint.h>
