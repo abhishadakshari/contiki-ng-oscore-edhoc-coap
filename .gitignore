@@ -73,3 +73,8 @@ tests/18-coap-lwm2m/leshan-server-demo*.jar
 examples/java-nested/logs/
 examples/java-nested/results/
 examples/java-nested/classes/
+
+# EDHOC test output (start-edhoc-server.sh / summarise-edhoc.py)
+examples/java-edhoc/logs/
+examples/java-edhoc/results/
+examples/java-edhoc/classes/
