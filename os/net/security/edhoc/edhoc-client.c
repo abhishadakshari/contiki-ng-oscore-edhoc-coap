@@ -85,6 +85,8 @@ static process_event_t edhoc_event = PROCESS_EVENT_NONE;
 static uint8_t attempt = 0;
 static int err = 0;
 static edhoc_msg_2_t msg2;
+/* CoAP code of the last response from the server (checked for message_3) */
+static uint8_t last_response_code;
 /*---------------------------------------------------------------------------*/
 PROCESS(edhoc_client, "EDHOC Client");
 /*---------------------------------------------------------------------------*/
@@ -300,6 +302,7 @@ client_response_handler(coap_callback_request_state_t *callback_state)
     return;
   }
 
+  last_response_code = callback_state->state.response->code;
   if(callback_state->state.response->code != CHANGED_2_04) {
     LOG_WARN("Response code is not CHANGED_2_04\n");
   }
@@ -474,6 +477,17 @@ handle_rx_msg2(edhoc_client_t *client, edhoc_msg_2_t *msg2)
 static int
 handle_rx_response_msg3(edhoc_client_t *client)
 {
+  /*Confirms failed handshake if message 3 isn't type 2.04*/
+  if(last_response_code != CHANGED_2_04) {
+  LOG_ERR("Server rejected message_3 (response %u.%02u)\n",
+          last_response_code >> 5, last_response_code & 0x1f);
+  edhoc_state.val = EVT_RESTART;
+  client->state = PROTO_IDLE;
+  coap_timer_stop(&timer);
+  process_post(&edhoc_client, edhoc_event, &edhoc_state);
+  return -1;
+  
+  }
   if(edhoc_ctx->buffers.rx_sz > 0) {
     edhoc_error_t error = edhoc_check_err_rx_msg(3, edhoc_ctx->buffers.msg_rx,
                                                   edhoc_ctx->buffers.rx_sz);

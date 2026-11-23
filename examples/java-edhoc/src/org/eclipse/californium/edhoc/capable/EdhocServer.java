@@ -153,7 +153,7 @@ public class EdhocServer extends CoapServer {
 		
 		// Force specific connection IDs
 		CBORObject ridMap = CBORObject.NewMap();
-		ridMap.Add(CBORObject.FromObject(0), CBORObject.FromObject(new byte[] { (byte) 0xEE }));
+		ridMap.Add(CBORObject.FromObject(0), CBORObject.FromObject(new byte[] { (byte) 0x27 }));   // C_R as in RFC 9529 Trace 2 (was 0xEE, which Contiki cannot prefix message_3 with)
 		MessageProcessor.forcedCidResponder = ridMap;
 
 		// Insert EdDSA security provider

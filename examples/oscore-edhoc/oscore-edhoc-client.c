@@ -122,8 +122,15 @@ response_handler(coap_message_t *response)
     return;
   }
   int len = coap_get_payload(response, &chunk);
-  printf("response: \n|%.*s\n", len, (char *)chunk);
-  snprintf(line, sizeof(line), "result OK %.*s", len, (char *)chunk);
+  printf("response %u.%02u: \n|%.*s\n", response->code >> 5, response->code & 0x1f,
+         len, (char *)chunk);
+  if(response->code == CONTENT_2_05) {
+    snprintf(line, sizeof(line), "result OK %.*s", len, (char *)chunk);
+  } else {
+    /* e.g. 4.01 "Security context not found" from the server */
+    snprintf(line, sizeof(line), "result FAILED %u.%02u %.*s", response->code >> 5,
+             response->code & 0x1f, len, (char *)chunk);
+  }
   record_result("a", line);
 }
 /*---------------------------------------------------------------------------*/
