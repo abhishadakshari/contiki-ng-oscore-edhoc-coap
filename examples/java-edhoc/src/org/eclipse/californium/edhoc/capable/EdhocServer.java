@@ -82,7 +82,7 @@ public class EdhocServer extends CoapServer {
     // i.e., for this peer to indicate its own authentication credential to the other peer.
     // Possible values: ID_CRED_TYPE_KID ; ID_CRED_TYPE_CWT ; ID_CRED_TYPE_CCS ;
     //                  ID_CRED_TYPE_X5T ; ID_CRED_TYPE_X5U ; ID_CRED_TYPE_X5CHAIN
-	private static int idCredType = Constants.ID_CRED_TYPE_KID;                // was ID_CRED_TYPE_X5T
+	private static int idCredType = Constants.ID_CRED_TYPE_CCS;                // was ID_CRED_TYPE_X5T
 	    
     // The trust model used to validate authentication credentials of other peers
     private static int trustModel = Constants.TRUST_MODEL_NO_LEARNING;
@@ -432,7 +432,7 @@ public class EdhocServer extends CoapServer {
 		// A single type will be used for identifiers of the authentication credentials.
 
 	    // The subject name used for the identity key of this peer
-	    String subjectName = "";
+	    String subjectName = "example.edu";   // RFC 9529 Trace 2; must match the CCS sent by value (was "")
 		
 	    
 		// Add one authentication credential for curve Ed25519 and one for curve X25519
@@ -774,7 +774,7 @@ public class EdhocServer extends CoapServer {
 		byte[] peerSerializedCert = null;
 
 	    // The subject name used for the identity key of the other peer
-	    String peerSubjectName = "";
+	    String peerSubjectName = "42-50-31-FF-EF-37-32-39";   // RFC 9529 Trace 2 client; must match its CCS (was "")
 
 	    
 		/* *** *** *** *** */

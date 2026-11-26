@@ -256,9 +256,20 @@ edhoc_generate_id_cred_x(const cose_key_t *cose, uint8_t *cred, size_t cred_sz)
     return cbor_end_writer(&writer);
   }
 
-  /* Include directly the credential used for authentication ID_CRED_X = CRED_X */
+  /* Credential by value: ID_CRED_X = {14: CRED_X} ('kccs', RFC 9528 3.5.2) */
   if(EDHOC_AUTHENT_TYPE == EDHOC_CRED_INCLUDE) {
-    return edhoc_generate_cred_x(cose, cred, cred_sz);
+    uint8_t ccs[EDHOC_MAX_CRED_LEN];
+    size_t ccs_sz = edhoc_generate_cred_x(cose, ccs, sizeof(ccs));
+    if(ccs_sz == 0) {
+      return 0;
+    }
+    cbor_writer_state_t writer;
+    cbor_init_writer(&writer, cred, cred_sz);
+    cbor_open_map(&writer);
+    cbor_write_unsigned(&writer, COSE_HEADER_LABEL_KCCS);
+    cbor_write_object(&writer, ccs, ccs_sz);
+    cbor_close_map(&writer);
+    return cbor_end_writer(&writer);
   }
   return 0;
 }
@@ -302,19 +313,24 @@ edhoc_generate_transcript_hash_2(edhoc_context_t *ctx, const uint8_t *eph_pub,
   return 0;
 }
 /*---------------------------------------------------------------------------*/
+/* Largest TH_3 / TH_4 input: TH, PLAINTEXT_2/3 and CRED_X */
+#define EDHOC_TH_INPUT_MAX (CBOR_BYTE_STRING_SIZE(HASH_LEN) + EDHOC_MAX_BUFFER + EDHOC_MAX_CRED_LEN)
+/*---------------------------------------------------------------------------*/
 uint8_t
 edhoc_generate_transcript_hash_3(edhoc_context_t *ctx, const uint8_t *cred, uint16_t cred_sz,
               const uint8_t *plaintext, uint16_t plaintext_sz)
 {
-  /* Check for potential buffer overflow */
+  /* TH_3 = H(TH_2, PLAINTEXT_2, CRED_R). The input is TH (34 bytes) + PLAINTEXT + CRED, so it
+   * is sized for the largest of each. It used to be EDHOC_MAX_BUFFER (256)
+   * bytes, which a credential sent by value overflows (TH_4 input is 259 bytes
+   * for RFC 9529 Trace 2 by value), and the error was ignored, leaving the
+   * old TH in place. */
+  uint8_t h[EDHOC_TH_INPUT_MAX];
   uint16_t required_size = CBOR_BYTE_STRING_SIZE(HASH_LEN) + plaintext_sz + cred_sz;
-  if(required_size > EDHOC_MAX_BUFFER || plaintext_sz > EDHOC_MAX_BUFFER || cred_sz > EDHOC_MAX_BUFFER) {
-    LOG_ERR("Buffer sizes exceed maximum allowed\n");
+  if(required_size > sizeof(h)) {
+    LOG_ERR("TH_3 input too large (%u > %u bytes)\n", required_size, (unsigned)sizeof(h));
     return 1;
   }
-
-  /* TH_3 = H(TH_2, PLAINTEXT_2, CRED_R) */
-  uint8_t h[EDHOC_MAX_BUFFER];
   cbor_writer_state_t writer;
   cbor_init_writer(&writer, h, sizeof(h));
   cbor_write_data(&writer, ctx->state.th, HASH_LEN);
@@ -335,15 +351,17 @@ uint8_t
 edhoc_generate_transcript_hash_4(edhoc_context_t *ctx, const uint8_t *cred, uint16_t cred_sz,
               const uint8_t *plaintext, uint16_t plaintext_sz)
 {
-  /* Check for potential buffer overflow */
+  /* TH_4 = H(TH_3, PLAINTEXT_3, CRED_I). The input is TH (34 bytes) + PLAINTEXT + CRED, so it
+   * is sized for the largest of each. It used to be EDHOC_MAX_BUFFER (256)
+   * bytes, which a credential sent by value overflows (TH_4 input is 259 bytes
+   * for RFC 9529 Trace 2 by value), and the error was ignored, leaving the
+   * old TH in place. */
+  uint8_t h[EDHOC_TH_INPUT_MAX];
   uint16_t required_size = CBOR_BYTE_STRING_SIZE(HASH_LEN) + plaintext_sz + cred_sz;
-  if(required_size > EDHOC_MAX_BUFFER || plaintext_sz > EDHOC_MAX_BUFFER || cred_sz > EDHOC_MAX_BUFFER) {
-    LOG_ERR("Buffer sizes exceed maximum allowed\n");
+  if(required_size > sizeof(h)) {
+    LOG_ERR("TH_4 input too large (%u > %u bytes)\n", required_size, (unsigned)sizeof(h));
     return 1;
   }
-
-  /* TH_4 = H(TH_3, PLAINTEXT_3, CRED_I) */
-  uint8_t h[EDHOC_MAX_BUFFER];
   cbor_writer_state_t writer;
   cbor_init_writer(&writer, h, sizeof(h));
   cbor_write_data(&writer, ctx->state.th, HASH_LEN);
@@ -889,12 +907,19 @@ edhoc_authenticate_msg(edhoc_context_t *ctx, uint8_t *ad, bool msg2)
   cbor_reader_state_t reader;
   cbor_init_reader(&reader, plaintext_ptr, parse_size);
 
-  /* Parse ID_CRED_X using shared reader state */
-  int8_t key_result = edhoc_get_key_id_cred_x(&reader, NULL, 0, key);
+  /* Parse ID_CRED_X using shared reader state. The received ID_CRED_X is
+   * kept as sent (it is part of the MAC context), and if the credential
+   * came by value its bytes are kept as CRED_X. */
+  const uint8_t *cred_value = NULL;
+  size_t cred_value_sz = 0;
+  int8_t key_result = edhoc_get_key_id_cred_x(&reader, ctx->buffers.id_cred_x,
+                                              sizeof(ctx->buffers.id_cred_x), key,
+                                              &cred_value, &cred_value_sz);
   if(key_result < 0) {
     LOG_ERR("Failed to parse ID_CRED_X (error: %d)\n", key_result);
     return key_result;
   }
+  ctx->buffers.id_cred_x_sz = key_result;
 
   /* Get MAC from the decrypted message using shared reader state */
   uint8_t *received_mac = NULL;
@@ -916,16 +941,24 @@ edhoc_authenticate_msg(edhoc_context_t *ctx, uint8_t *ad, bool msg2)
     ad = NULL;
   }
 
-  /* generate cred_x and id_cred_x */
-  ctx->buffers.cred_x_sz = edhoc_generate_cred_x(key, ctx->buffers.cred_x,
-      sizeof(ctx->buffers.cred_x));
+  /* CRED_X: by value, the exact bytes the peer sent; by reference, built
+   * from the credential stored locally for that kid. ID_CRED_X is the one
+   * received above, not one generated from this node's own settings. */
+  if(cred_value) {
+    if(cred_value_sz > sizeof(ctx->buffers.cred_x)) {
+      LOG_ERR("Received credential too large (%zu bytes)\n", cred_value_sz);
+      return EDHOC_ERR_BUFFER_OVERFLOW;
+    }
+    memcpy(ctx->buffers.cred_x, cred_value, cred_value_sz);
+    ctx->buffers.cred_x_sz = cred_value_sz;
+  } else {
+    ctx->buffers.cred_x_sz = edhoc_generate_cred_x(key, ctx->buffers.cred_x,
+        sizeof(ctx->buffers.cred_x));
+  }
   LOG_DBG("CRED_X auth (%zu): ", ctx->buffers.cred_x_sz);
   LOG_DBG_BYTES(ctx->buffers.cred_x, ctx->buffers.cred_x_sz);
   LOG_DBG_("\n");
 
-  ctx->buffers.id_cred_x_sz =
-    edhoc_generate_id_cred_x(key, ctx->buffers.id_cred_x,
-                             sizeof(ctx->buffers.id_cred_x));
   LOG_DBG("ID_CRED_X auth (%zu): ", ctx->buffers.id_cred_x_sz);
   LOG_DBG_BYTES(ctx->buffers.id_cred_x, ctx->buffers.id_cred_x_sz);
   LOG_DBG_("\n");
@@ -992,8 +1025,10 @@ edhoc_authenticate_msg(edhoc_context_t *ctx, uint8_t *ad, bool msg2)
   /* Compute TH_4 WIP (after verifying MAC_3) */
   if(msg2 == false) { /* msg 3 */
     /* Calculate TH_4 */
-    edhoc_generate_transcript_hash_4(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
-                  ctx->buffers.plaintext, ctx->buffers.plaintext_sz);
+    if(edhoc_generate_transcript_hash_4(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
+                  ctx->buffers.plaintext, ctx->buffers.plaintext_sz) != 0) {
+      return EDHOC_ERR_BUFFER_OVERFLOW;
+    }
   }
 
   return ad_sz;

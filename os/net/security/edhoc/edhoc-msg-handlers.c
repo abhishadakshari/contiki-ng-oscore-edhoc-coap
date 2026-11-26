@@ -411,8 +411,10 @@ edhoc_handler_msg_3(edhoc_msg_3_t *msg3, edhoc_context_t *ctx,
   LOG_DBG_("\n");
 
   /* generate TH_3 */
-  edhoc_generate_transcript_hash_3(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
-                ctx->buffers.plaintext, ctx->buffers.plaintext_sz);
+  if(edhoc_generate_transcript_hash_3(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
+                ctx->buffers.plaintext, ctx->buffers.plaintext_sz) != 0) {
+    return EDHOC_ERR_BUFFER_OVERFLOW;
+  }
 
   /* decrypt msg3 and check the TAG for verify the outer */
   uint16_t plaintext_sz = decrypt_ciphertext_3(ctx, msg3->ciphertext_3,

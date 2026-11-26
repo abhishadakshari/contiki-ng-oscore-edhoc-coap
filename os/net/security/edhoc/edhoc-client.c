@@ -449,7 +449,10 @@ handle_rx_msg2(edhoc_client_t *client, edhoc_msg_2_t *msg2)
   if(err == EDHOC_ERR_MSG_MALFORMED) {
     LOG_ERR("error code (%d)\n", err);
     return -1;
-  } else if(err < EDHOC_ERR_MSG_MALFORMED) {
+  } else if(err < 0) {
+    /* Any failure to process or authenticate message_2 stops the handshake.
+     * (Was "err < EDHOC_ERR_MSG_MALFORMED", which let errors between -1 and
+     * -20, including EDHOC_ERR_CRYPTO_AUTHENTICATION, carry on to message_3.) */
     handle_msg2_error(err);
     return -1;
   }

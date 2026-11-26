@@ -56,11 +56,9 @@
  */
 #define EDHOC_MAX_CRED_LEN 128
 
-#if EDHOC_AUTHENT_TYPE == EDHOC_CRED_KID
-#define EDHOC_MAX_ID_CRED_LEN 16    /* KID mode: 4-7 bytes typical → 16 bytes (safe) */
-#else
-#define EDHOC_MAX_ID_CRED_LEN 128   /* Include mode: same as credential size */
-#endif
+/* EDHOC_MAX_ID_CRED_LEN is defined further down, after EDHOC_AUTHENT_TYPE:
+ * here EDHOC_AUTHENT_TYPE and EDHOC_CRED_KID are not defined yet, so a test
+ * on them would always see 0 == 0 and pick the 16-byte KID size. */
 
 /**
  * \brief The max number of suites
@@ -216,6 +214,7 @@
 #define COSE_HEADER_LABEL_COMPACT_ENCODING 0  /* Compact encoding (bare KID) */
 #define COSE_HEADER_LABEL_CRED_FULL 1         /* Full credential inclusion */
 #define COSE_HEADER_LABEL_KID 4               /* Key ID in map format {4: kid} */
+#define COSE_HEADER_LABEL_KCCS 14             /* Credential by value: {14: CCS} (RFC 9528 3.5.2) */
 
 /**
  * \brief Set the authentication credential type/usage
@@ -224,6 +223,15 @@
 #define EDHOC_AUTHENT_TYPE EDHOC_CONF_AUTHENT_TYPE
 #else
 #define EDHOC_AUTHENT_TYPE EDHOC_CRED_KID
+#endif
+
+/* ID_CRED_X buffer: a kid in KID mode, a whole credential {14: CCS} by value */
+#ifndef EDHOC_MAX_ID_CRED_LEN
+#if EDHOC_AUTHENT_TYPE == EDHOC_CRED_KID
+#define EDHOC_MAX_ID_CRED_LEN 16    /* KID mode: 4-7 bytes typical -> 16 bytes (safe) */
+#else
+#define EDHOC_MAX_ID_CRED_LEN 128   /* By value: {14: CCS}, e.g. 97 / 109 bytes for Trace 2 */
+#endif
 #endif
 
 /* cipher suites */

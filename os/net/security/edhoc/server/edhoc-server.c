@@ -231,7 +231,10 @@ handle_msg3_state(void)
     return -1;
   }
 
-  if(err < EDHOC_ERR_MSG_MALFORMED) {
+  /* Any failure to process or authenticate message_3 is an error (was
+   * "err < EDHOC_ERR_MSG_MALFORMED", which let errors between -1 and -20,
+   * including EDHOC_ERR_CRYPTO_AUTHENTICATION, through). */
+  if(err < 0) {
     edhoc_ctx->buffers.tx_sz =
       edhoc_generate_error_message(edhoc_ctx->buffers.msg_tx, EDHOC_MAX_PAYLOAD_LEN,
                           edhoc_ctx, err);

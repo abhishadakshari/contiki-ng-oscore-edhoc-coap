@@ -96,10 +96,14 @@ gen_plaintext(edhoc_context_t *ctx, const uint8_t *auth_data, size_t auth_data_s
     edhoc_write_byte_identifier(&writer, ctx->state.cid, ctx->state.cid_len);
   }
 
+  /* {4: kid} is sent in compact form (just the kid); anything else, such as
+   * a credential by value {14: CCS}, is sent as the whole map. */
   size_t num = cbor_read_map(&reader);
+  uint64_t value = 0;
   if(num == 1) {
-    uint64_t value;
     cbor_read_unsigned(&reader, &value);
+  }
+  if(num == 1 && value == COSE_HEADER_LABEL_KID) {
     const uint8_t *data = cbor_read_data(&reader, &num);
     if(!data || !num) {
       LOG_ERR("error to get bytes\n");
@@ -413,8 +417,10 @@ edhoc_generate_message_3(edhoc_context_t *ctx, const uint8_t *auth_data, size_t 
     return EDHOC_ERR_NULL_POINTER;
   }
   /* gen TH_3 */
-  edhoc_generate_transcript_hash_3(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
-                ctx->buffers.plaintext, ctx->buffers.plaintext_sz);
+  if(edhoc_generate_transcript_hash_3(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
+                ctx->buffers.plaintext, ctx->buffers.plaintext_sz) != 0) {
+    return EDHOC_ERR_BUFFER_OVERFLOW;
+  }
 
   cose_print_key(ctx->creds.authen_key);
   LOG_DBG("SK_I (Initiator's private auth key) (%d bytes): ",
@@ -538,9 +544,11 @@ edhoc_generate_message_3(edhoc_context_t *ctx, const uint8_t *auth_data, size_t 
   memcpy(ctx->buffers.msg_tx, ctx->state.cid_rx, ctx->state.cid_rx_len);
   ctx->buffers.tx_sz = ciphertext_sz + ctx->state.cid_rx_len;
 
-  /* Compute TH_4 WIP */
-  edhoc_generate_transcript_hash_4(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
-                ctx->buffers.plaintext, ctx->buffers.plaintext_sz);
+  /* Compute TH_4 */
+  if(edhoc_generate_transcript_hash_4(ctx, ctx->buffers.cred_x, ctx->buffers.cred_x_sz,
+                ctx->buffers.plaintext, ctx->buffers.plaintext_sz) != 0) {
+    return EDHOC_ERR_BUFFER_OVERFLOW;
+  }
 
   return EDHOC_SUCCESS;
 }

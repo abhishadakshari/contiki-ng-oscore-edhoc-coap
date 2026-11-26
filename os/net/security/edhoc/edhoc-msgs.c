@@ -606,6 +606,144 @@ parse_full_credential(cbor_reader_state_t *reader, cose_key_t *key)
   return EDHOC_SUCCESS;
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Credential by value: ID_CRED_X = {14: CCS}, where the CCS is
+ * {2: subject, 8: {1: COSE_Key}} (RFC 9528 Section 3.5.2, RFC 8392).
+ * Reads the key out of the received CCS and returns the CCS bytes
+ * themselves, which are CRED_X. The key must match the trusted key stored
+ * under the same kid (no trust on first use).
+ */
+static edhoc_error_t
+parse_kccs(cbor_reader_state_t *reader, cose_key_t *key,
+           const uint8_t **ccs, size_t *ccs_sz)
+{
+  const uint8_t *start = cbor_get_position(reader);
+  cose_key_t rx;
+  bool have_x = false, have_y = false;
+  memset(&rx, 0, sizeof(rx));
+
+  size_t claims = cbor_read_map(reader);
+  if(claims == SIZE_MAX) {
+    LOG_ERR("kccs: CCS is not a CBOR map\n");
+    return EDHOC_ERR_ID_CRED_MALFORMED;
+  }
+  for(size_t i = 0; i < claims; i++) {
+    uint64_t claim;
+    if(cbor_read_unsigned(reader, &claim) == CBOR_SIZE_NONE) {
+      LOG_ERR("kccs: unsupported claim key\n");
+      return EDHOC_ERR_ID_CRED_MALFORMED;
+    }
+    if(claim == 2) {                            /* sub */
+      size_t sub_sz;
+      const char *sub = cbor_read_text(reader, &sub_sz);
+      if(!sub || sub_sz > sizeof(rx.identity)) {
+        LOG_ERR("kccs: bad subject\n");
+        return EDHOC_ERR_ID_CRED_MALFORMED;
+      }
+      memcpy(rx.identity, sub, sub_sz);
+      rx.identity_sz = sub_sz;
+    } else if(claim == 8) {                     /* cnf */
+      size_t cnf = cbor_read_map(reader);
+      if(cnf == SIZE_MAX) {
+        return EDHOC_ERR_ID_CRED_MALFORMED;
+      }
+      for(size_t j = 0; j < cnf; j++) {
+        uint64_t cnf_label;
+        if(cbor_read_unsigned(reader, &cnf_label) == CBOR_SIZE_NONE) {
+          return EDHOC_ERR_ID_CRED_MALFORMED;
+        }
+        if(cnf_label != 1) {                    /* only COSE_Key is supported */
+          if(!cbor_skip_next(reader)) {
+            return EDHOC_ERR_ID_CRED_MALFORMED;
+          }
+          continue;
+        }
+        size_t params = cbor_read_map(reader);
+        if(params == SIZE_MAX) {
+          return EDHOC_ERR_ID_CRED_MALFORMED;
+        }
+        for(size_t k = 0; k < params; k++) {
+          int64_t param;
+          uint64_t u;
+          size_t len;
+          const uint8_t *data;
+          if(cbor_read_signed(reader, &param) == CBOR_SIZE_NONE) {
+            return EDHOC_ERR_ID_CRED_MALFORMED;
+          }
+          switch(param) {
+          case 1:                               /* kty */
+            if(cbor_read_unsigned(reader, &u) == CBOR_SIZE_NONE) {
+              return EDHOC_ERR_ID_CRED_MALFORMED;
+            }
+            rx.kty = (uint8_t)u;
+            break;
+          case 2:                               /* kid */
+            data = cbor_read_data(reader, &len);
+            if(!data || len == 0 || len > sizeof(rx.kid)) {
+              return EDHOC_ERR_ID_CRED_MALFORMED;
+            }
+            memcpy(rx.kid, data, len);
+            rx.kid_sz = len;
+            break;
+          case -1:                              /* crv */
+            if(cbor_read_unsigned(reader, &u) == CBOR_SIZE_NONE) {
+              return EDHOC_ERR_ID_CRED_MALFORMED;
+            }
+            rx.crv = (uint8_t)u;
+            break;
+          case -2:                              /* x */
+            data = cbor_read_data(reader, &len);
+            if(!data || len != ECC_KEY_LEN) {
+              return EDHOC_ERR_ID_CRED_MALFORMED;
+            }
+            memcpy(rx.ecc.pub.x, data, ECC_KEY_LEN);
+            have_x = true;
+            break;
+          case -3:                              /* y */
+            data = cbor_read_data(reader, &len);
+            if(!data || len != ECC_KEY_LEN) {
+              return EDHOC_ERR_ID_CRED_MALFORMED;
+            }
+            memcpy(rx.ecc.pub.y, data, ECC_KEY_LEN);
+            have_y = true;
+            break;
+          default:
+            if(!cbor_skip_next(reader)) {
+              return EDHOC_ERR_ID_CRED_MALFORMED;
+            }
+          }
+        }
+      }
+    } else if(!cbor_skip_next(reader)) {        /* other claims are ignored */
+      return EDHOC_ERR_ID_CRED_MALFORMED;
+    }
+  }
+
+  if(rx.kty != 2 || rx.crv != 1 || !have_x || !have_y || rx.kid_sz == 0) {
+    LOG_ERR("kccs: only EC2 P-256 keys with a kid are supported\n");
+    return EDHOC_ERR_ID_CRED_MALFORMED;
+  }
+
+  /* Trust: the key sent by value must be the one we already trust for this kid */
+  cose_key_t *trusted = NULL;
+  edhoc_error_t result = edhoc_get_auth_key_from_kid(rx.kid, rx.kid_sz, &trusted);
+  if(result != EDHOC_SUCCESS) {
+    LOG_ERR("kccs: no trusted credential for this kid\n");
+    return result;
+  }
+  if(memcmp(trusted->ecc.pub.x, rx.ecc.pub.x, ECC_KEY_LEN) != 0 ||
+     memcmp(trusted->ecc.pub.y, rx.ecc.pub.y, ECC_KEY_LEN) != 0) {
+    LOG_ERR("kccs: received key does not match the trusted key\n");
+    return EDHOC_ERR_CREDENTIAL_INVALID;
+  }
+
+  memcpy(key, trusted, sizeof(cose_key_t));
+  *ccs = start;
+  *ccs_sz = cbor_get_position(reader) - start;
+  LOG_DBG("Credential received by value (kccs, %zu bytes)\n", *ccs_sz);
+  return EDHOC_SUCCESS;
+}
+/*---------------------------------------------------------------------------*/
 static uint8_t
 determine_credential_label(cbor_reader_state_t *reader)
 {
@@ -668,8 +806,12 @@ copy_id_cred_x_to_output(const uint8_t *start, const uint8_t *end,
 /*---------------------------------------------------------------------------*/
 int8_t
 edhoc_get_key_id_cred_x(cbor_reader_state_t *reader, uint8_t *out_id_cred_x,
-                       size_t id_cred_x_buffer_size, cose_key_t *key)
+                       size_t id_cred_x_buffer_size, cose_key_t *key,
+                       const uint8_t **cred_value, size_t *cred_value_sz)
 {
+  const uint8_t *ccs = NULL;
+  size_t ccs_sz = 0;
+
   if(!reader || !key) {
     LOG_ERR("Invalid parameters for edhoc_get_key_id_cred_x\n");
     return EDHOC_ERR_ID_CRED_MALFORMED;
@@ -690,6 +832,9 @@ edhoc_get_key_id_cred_x(cbor_reader_state_t *reader, uint8_t *out_id_cred_x,
   case COSE_HEADER_LABEL_CRED_FULL:
     key_sz = parse_full_credential(reader, key);
     break;
+  case COSE_HEADER_LABEL_KCCS:
+    key_sz = parse_kccs(reader, key, &ccs, &ccs_sz);
+    break;
   default:
     LOG_ERR("Unknown credential label %d\n", label);
     return EDHOC_ERR_ID_CRED_MALFORMED;
@@ -698,6 +843,13 @@ edhoc_get_key_id_cred_x(cbor_reader_state_t *reader, uint8_t *out_id_cred_x,
   if(EDHOC_FAILED(key_sz)) {
     LOG_ERR("Failed to parse credential: %d\n", key_sz);
     return key_sz;  /* Return the error from parse function */
+  }
+
+  if(cred_value) {
+    *cred_value = ccs;           /* NULL unless sent by value */
+  }
+  if(cred_value_sz) {
+    *cred_value_sz = ccs_sz;
   }
 
   const uint8_t *end = cbor_get_position(reader);

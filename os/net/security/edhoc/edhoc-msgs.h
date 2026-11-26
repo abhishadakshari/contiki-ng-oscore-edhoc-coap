@@ -221,13 +221,20 @@ edhoc_error_t edhoc_get_auth_key_from_kid(uint8_t *kid, uint8_t kid_sz, cose_key
  * \param key output parsed authentication key information
  * \return size of ID_CRED_X data on success, negative error code on failure
  *
- * Parses ID_CRED_X in three supported formats:
- * - Compact encoding: bare KID value
- * - Map format: {4: KID}
- * - Full credential inclusion: complete COSE key structure
+ * Parses ID_CRED_X in these formats:
+ * - Compact encoding: bare KID value (by reference)
+ * - Map format: {4: KID} (by reference)
+ * - Credential by value, 'kccs': {14: CCS} (RFC 9528 Section 3.5.2). The
+ *   received CCS is returned in cred_value / cred_value_sz so the caller
+ *   uses those exact bytes as CRED_X instead of rebuilding them from the
+ *   key. Its key must match a trusted key with the same kid.
+ * - Legacy full-credential form: bare COSE key map (label 1)
  * Populates the key structure with authentication information.
+ * cred_value is set to NULL when the credential was sent by reference.
  */
-int8_t edhoc_get_key_id_cred_x(cbor_reader_state_t *reader, uint8_t *id_cred_x, size_t id_cred_x_buffer_size, cose_key_t *key);
+int8_t edhoc_get_key_id_cred_x(cbor_reader_state_t *reader, uint8_t *id_cred_x,
+                               size_t id_cred_x_buffer_size, cose_key_t *key,
+                               const uint8_t **cred_value, size_t *cred_value_sz);
 
 /**
  * \brief Parse signature data from CBOR reader
