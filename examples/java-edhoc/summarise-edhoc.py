@@ -33,7 +33,8 @@ EMPTY_ACK = 4          # an empty CoAP ACK is 4 bytes
 UDP_LINE = re.compile(
     r"^(?P<time>\d\d:\d\d:\d\d\.\d+) .*UDPConnector \((?P<label>.*?)\) (?P<dir>sent|received) "
     r"(?P<n>\d+) bytes (?:to|from) \[(?P<addr>[^\]]+)\]:(?P<port>\d+)")
-PROBLEM = re.compile(r" (ERROR|WARN) \[(?!Configuration|EdhocLayer\]: Initializing)")
+EMPTY_RESPONSE = re.compile(r"completed ACK-\d\.\d\d .*<empty data>")
+PROBLEM = re.compile(r" (ERROR|WARN) \[(?!Configuration|EdhocLayer)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 # What the n-th request / response on the server is, in Stage 1
@@ -78,13 +79,23 @@ def main():
     if server is None:
         sys.exit("No logs/server.log - run start-edhoc-server.sh first.")
 
-    # Messages between the client and the server, in order
+    # Messages between the client and the server, in order.
+    # A 4-byte message is either an empty ACK (not counted) or a real response
+    # with no token and no payload, e.g. the "ACK-2.04" the server sends back
+    # for message_3. Californium logs "completed ACK-2.04 ... <empty data>" just
+    # before sending the latter, which is how the two are told apart.
     rx, tx, acks, problems = [], [], 0, []
-    for line in server:
+    last_empty_response = -1000
+    for i, line in enumerate(server):
+        if EMPTY_RESPONSE.search(line):
+            last_empty_response = i
+            continue
         m = UDP_LINE.search(line)
         if m:
             n = int(m.group("n"))
-            if n == EMPTY_ACK:
+            if n == EMPTY_ACK and m.group("dir") == "sent" and i - last_empty_response > 40:
+                acks += 1
+            elif n == EMPTY_ACK and m.group("dir") == "received":
                 acks += 1
             elif m.group("dir") == "received":
                 rx.append((m.group("time"), n))
@@ -125,7 +136,7 @@ def main():
                ("  (" + client["ids"] + ")") if client["edhoc"] == "OK" else ""))
     out.append("- **Method / suite / chunk size:** %s / 2 / %s" % (fmt(client["method"]), fmt(client["chunk"])))
     if acks:
-        out.append("- **Empty ACKs (4 bytes), not counted below:** %d" % acks)
+        out.append("- **Empty ACKs (4 bytes, no code), not counted below:** %d" % acks)
     out.append("")
     out.append("| Step | Client → server (bytes) | Server → client (bytes) |")
     out.append("| --- | --- | --- |")
