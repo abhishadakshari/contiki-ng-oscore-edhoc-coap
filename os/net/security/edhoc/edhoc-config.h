@@ -56,9 +56,11 @@
  */
 #define EDHOC_MAX_CRED_LEN 128
 
-/* EDHOC_MAX_ID_CRED_LEN is defined further down, after EDHOC_AUTHENT_TYPE:
- * here EDHOC_AUTHENT_TYPE and EDHOC_CRED_KID are not defined yet, so a test
- * on them would always see 0 == 0 and pick the 16-byte KID size. */
+/*
+ * EDHOC_MAX_ID_CRED_LEN is defined further down, after EDHOC_AUTHENT_TYPE.
+ * At this point EDHOC_AUTHENT_TYPE and EDHOC_CRED_KID are not defined yet,
+ * so a test on them here would always compare 0 == 0 and pick the KID size.
+ */
 
 /**
  * \brief The max number of suites
@@ -225,7 +227,12 @@
 #define EDHOC_AUTHENT_TYPE EDHOC_CRED_KID
 #endif
 
-/* ID_CRED_X buffer: a kid in KID mode, a whole credential {14: CCS} by value */
+/**
+ * \brief The max length of ID_CRED_X
+ *
+ * A kid when credentials are sent by reference (EDHOC_CRED_KID), or the
+ * whole credential {14: CCS} when sent by value (EDHOC_CRED_INCLUDE).
+ */
 #ifndef EDHOC_MAX_ID_CRED_LEN
 #if EDHOC_AUTHENT_TYPE == EDHOC_CRED_KID
 #define EDHOC_MAX_ID_CRED_LEN 16    /* KID mode: 4-7 bytes typical -> 16 bytes (safe) */

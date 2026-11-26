@@ -85,7 +85,19 @@ static process_event_t edhoc_event = PROCESS_EVENT_NONE;
 static uint8_t attempt = 0;
 static int err = 0;
 static edhoc_msg_2_t msg2;
-/* CoAP code of the last response from the server (checked for message_3) */
+/*
+ * Peer of the next EDHOC run, set with edhoc_client_set_server(). The
+ * defaults keep the original behaviour: the compile-time SERVER_EP and the
+ * .well-known/edhoc resource. server_uri_path is NULL when the EDHOC
+ * messages go through a proxy (see edhoc_client_post()).
+ */
+static const char *server_uri = SERVER_EP;
+static const char *server_uri_path = EDHOC_COAP_URI_PATH;
+/*
+ * CoAP code of the last response received, kept so that
+ * handle_rx_response_msg3() can tell whether the Responder accepted
+ * message_3.
+ */
 static uint8_t last_response_code;
 /*---------------------------------------------------------------------------*/
 PROCESS(edhoc_client, "EDHOC Client");
@@ -125,8 +137,24 @@ edhoc_client_callback(process_event_t ev, void *data)
 }
 /*---------------------------------------------------------------------------*/
 void
+edhoc_client_set_server(const char *ep_uri, const char *uri_path)
+{
+  server_uri = ep_uri ? ep_uri : SERVER_EP;
+  server_uri_path = uri_path;
+}
+/*---------------------------------------------------------------------------*/
+void
 edhoc_client_run(void)
 {
+  /*
+   * The EDHOC client process of the previous run exits when it handles its
+   * own EVT_FINISHED or EVT_TRIES_EXPIRE. If the application starts the
+   * next run before that has happened, stop the old process here, or
+   * process_start() would ignore the new run.
+   */
+  if(process_is_running(&edhoc_client)) {
+    process_exit(&edhoc_client);
+  }
   process_start(&edhoc_client, NULL);
 }
 /*---------------------------------------------------------------------------*/
@@ -302,6 +330,7 @@ client_response_handler(coap_callback_request_state_t *callback_state)
     return;
   }
 
+  /* Kept for handle_rx_response_msg3(), see last_response_code */
   last_response_code = callback_state->state.response->code;
   if(callback_state->state.response->code != CHANGED_2_04) {
     LOG_WARN("Response code is not CHANGED_2_04\n");
@@ -317,7 +346,17 @@ client_response_handler(coap_callback_request_state_t *callback_state)
   if(!callback_state->state.more) {
     edhoc_ctx->buffers.rx_sz = rx_sz;
     edhoc_state.val = EVT_BLOCKING;
-    process_post(PROCESS_BROADCAST, edhoc_event, &edhoc_state);
+    /*
+     * Only the EDHOC client process handles EVT_BLOCKING, so it is posted to
+     * that process alone. As a broadcast it also reached the application,
+     * which reads the shared edhoc_state when the event is delivered: by
+     * then the EDHOC process had often already moved edhoc_state.val on to
+     * EVT_FINISHED, so the application saw the run end one event early,
+     * while the EDHOC process was still running. A second run started at
+     * that point never started (process_start() ignores a running process)
+     * and then "finished" at once on the late EVT_FINISHED.
+     */
+    process_post(&edhoc_client, edhoc_event, &edhoc_state);
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -336,7 +375,14 @@ static void
 edhoc_client_post(void)
 {
   coap_init_message(state.state.request, COAP_TYPE_CON, COAP_POST, 0);
-  coap_set_header_uri_path(state.state.request, EDHOC_COAP_URI_PATH);
+  /*
+   * No Uri-Path when the request goes through a proxy: the OSCORE path set
+   * for the proxy adds a Proxy-Uri option with the full EDHOC URI of the
+   * next hop instead (oscore_path_t target_uri).
+   */
+  if(server_uri_path != NULL) {
+    coap_set_header_uri_path(state.state.request, server_uri_path);
+  }
 
   send_sz = 0;
   msg_num = 0;
@@ -450,9 +496,11 @@ handle_rx_msg2(edhoc_client_t *client, edhoc_msg_2_t *msg2)
     LOG_ERR("error code (%d)\n", err);
     return -1;
   } else if(err < 0) {
-    /* Any failure to process or authenticate message_2 stops the handshake.
-     * (Was "err < EDHOC_ERR_MSG_MALFORMED", which let errors between -1 and
-     * -20, including EDHOC_ERR_CRYPTO_AUTHENTICATION, carry on to message_3.) */
+    /*
+     * All EDHOC error codes are negative. Any failure to process or
+     * authenticate message_2, e.g. EDHOC_ERR_CRYPTO_AUTHENTICATION, must
+     * stop the handshake here instead of going on to message_3.
+     */
     handle_msg2_error(err);
     return -1;
   }
@@ -480,16 +528,21 @@ handle_rx_msg2(edhoc_client_t *client, edhoc_msg_2_t *msg2)
 static int
 handle_rx_response_msg3(edhoc_client_t *client)
 {
-  /*Confirms failed handshake if message 3 isn't type 2.04*/
+  /*
+   * The Responder answers a valid message_3 with 2.04 (Changed), RFC 9528
+   * Appendix A.2. Any other code, e.g. 4.00 carrying an EDHOC error message,
+   * means the Responder rejected message_3. The handshake has then failed,
+   * even though this side has already derived its keys, so it is restarted
+   * rather than reported as finished.
+   */
   if(last_response_code != CHANGED_2_04) {
-  LOG_ERR("Server rejected message_3 (response %u.%02u)\n",
-          last_response_code >> 5, last_response_code & 0x1f);
-  edhoc_state.val = EVT_RESTART;
-  client->state = PROTO_IDLE;
-  coap_timer_stop(&timer);
-  process_post(&edhoc_client, edhoc_event, &edhoc_state);
-  return -1;
-  
+    LOG_ERR("Server rejected message_3 (response %u.%02u)\n",
+            last_response_code >> 5, last_response_code & 0x1f);
+    edhoc_state.val = EVT_RESTART;
+    client->state = PROTO_IDLE;
+    coap_timer_stop(&timer);
+    process_post(&edhoc_client, edhoc_event, &edhoc_state);
+    return -1;
   }
   if(edhoc_ctx->buffers.rx_sz > 0) {
     edhoc_error_t error = edhoc_check_err_rx_msg(3, edhoc_ctx->buffers.msg_rx,
@@ -566,7 +619,9 @@ edhoc_client_init(void)
     LOG_ERR("Failed to create EDHOC context\n");
     return;
   }
-  coap_endpoint_parse(SERVER_EP, strlen(SERVER_EP), &client->server_ep);
+  coap_endpoint_parse(server_uri, strlen(server_uri), &client->server_ep);
+  /* Each run, e.g. one per hop of a nested OSCORE path, gets all its attempts */
+  attempt = 0;
   state.state.request = client->request;
   state.state.response = client->response;
   state.state.remote_endpoint = &client->server_ep;

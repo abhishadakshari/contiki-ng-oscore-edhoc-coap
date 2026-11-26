@@ -1,15 +1,25 @@
-/*
- * Stage 1: EDHOC with the server only, then a 1-layer OSCORE request.
+/**
+ * \file
+ *         Stage 1: an OSCORE client whose security context comes from EDHOC.
  *
- * 1. Run EDHOC (method 3, suite 2, CCS by kid) with the Java EdhocServer at
- *    EDHOC_CONF_SERVER_EP.
- * 2. Export the OSCORE Master Secret and Salt, and turn the EDHOC connection
- *    identifiers into OSCORE IDs (RFC 9528, Appendix A.1):
- *    client Sender ID = C_R (the server's), Recipient ID = C_I (our own).
- * 3. Register a 1-layer OSCORE path to the server and send GET /helloWorld.
+ *         1. Run EDHOC (method 3, cipher suite 2, CCS credentials by kid,
+ *            RFC 9529 Trace 2) as Initiator with the Java EdhocServer at
+ *            EDHOC_CONF_SERVER_EP.
+ *         2. Export the OSCORE Master Secret and Master Salt, and turn the
+ *            EDHOC connection identifiers into OSCORE IDs (RFC 9528
+ *            Appendix A.1): Sender ID = C_R (the server's), Recipient ID =
+ *            C_I (this client's).
+ *         3. Register a 1-layer OSCORE path to the server and send
+ *            GET /helloWorld.
  *
- * The outcome is written to ../java-edhoc/logs/client-result.txt for
- * summarise-edhoc.py.
+ *         The outcome is written to ../java-edhoc/logs/client-result.txt
+ *         for examples/java-edhoc/summarise-edhoc.py.
+ *
+ *         SECURITY NOTICE: the RFC 9529 test credentials are publicly
+ *         known. Never use them outside testing.
+ *
+ * \author
+ *         Abhishek Shadakshari
  */
 #include <stdio.h>
 #include <string.h>
@@ -32,7 +42,11 @@
 #define COSE_ALG_AES_CCM_16_64_128 10
 
 /*---------------------------------------------------------------------------*/
-/* Results file for summarise-edhoc.py (native only) */
+/*
+ * Results file read by summarise-edhoc.py. Each line is one step of the run:
+ * "start ...", then one "edhoc..." line per EDHOC run, then "result ...".
+ * Only on native, where the client can write to the host's file system.
+ */
 #if CONTIKI_TARGET_NATIVE
 #define RESULT_FILE "../java-edhoc/logs/client-result.txt"
 static void
@@ -48,6 +62,8 @@ record_result(const char *mode, const char *line)
 #define record_result(mode, line)
 #endif
 
+/*---------------------------------------------------------------------------*/
+/* Write len bytes of b as hex into out, for the log and the results file */
 static void
 hex(char *out, size_t out_sz, const uint8_t *b, uint8_t len)
 {
@@ -58,15 +74,20 @@ hex(char *out, size_t out_sz, const uint8_t *b, uint8_t len)
 }
 /*---------------------------------------------------------------------------*/
 static oscore_ctx_t context;          /* the OSCORE context from EDHOC */
-static oscore_layer_t layer;
-static oscore_path_t path;
+static oscore_layer_t layer;          /* its single layer ... */
+static oscore_path_t path;            /* ... and the path to the server */
 static coap_endpoint_t server_ep;
+/* OSCORE IDs; oscore_derive_ctx() keeps pointers to these, so they are static */
 static uint8_t sender_id[EDHOC_MAX_CID_LEN];
 static uint8_t recipient_id[EDHOC_MAX_CID_LEN];
 static uint8_t sender_id_len, recipient_id_len;
-
-/* Called once EDHOC has finished: export the keys and build the OSCORE context.
- * Must run before edhoc_client_close(), which frees edhoc_ctx. */
+/*---------------------------------------------------------------------------*/
+/*
+ * Called once EDHOC has finished: export the keys, derive the OSCORE
+ * context and register the 1-layer path to the server. Must run before
+ * edhoc_client_close(), which frees edhoc_ctx.
+ * Returns 0 on success, -1 on failure.
+ */
 static int
 edhoc_to_oscore(void)
 {
@@ -108,6 +129,11 @@ edhoc_to_oscore(void)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Called by COAP_BLOCKING_REQUEST with the decrypted response, or with NULL
+ * if no response arrived (coap_error_message then says why). Only 2.05
+ * (Content) counts as a successful run.
+ */
 static void
 response_handler(coap_message_t *response)
 {

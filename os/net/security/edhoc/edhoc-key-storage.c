@@ -49,7 +49,19 @@
 
 /*---------------------------------------------------------------------------*/
 LIST(key_list);
-MEMB(key_memb, cose_key_t, 2);
+/**
+ * \brief The maximum number of keys in the key storage
+ *
+ * This node's own key plus one trusted key for each peer. The default of 2
+ * fits a single peer; a client that runs EDHOC with every hop of a nested
+ * OSCORE path needs one more key per hop.
+ */
+#ifdef EDHOC_CONF_MAX_KEYS
+#define EDHOC_MAX_KEYS EDHOC_CONF_MAX_KEYS
+#else
+#define EDHOC_MAX_KEYS 2
+#endif
+MEMB(key_memb, cose_key_t, EDHOC_MAX_KEYS);
 /*---------------------------------------------------------------------------*/
 edhoc_error_t
 edhoc_create_key_list(void)

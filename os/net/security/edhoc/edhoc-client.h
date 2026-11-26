@@ -162,5 +162,23 @@ void edhoc_client_set_ad_1(const void *data_buffer, uint8_t buffer_size);
  */
 void edhoc_client_set_ad_3(const void *data_buffer, uint8_t buffer_size);
 
+/**
+ * \brief Set the peer for the next EDHOC run
+ * \param ep_uri The CoAP endpoint the EDHOC messages are sent to, e.g.
+ *               "coap://[fd00::1]:5686", or NULL for the compile-time SERVER_EP
+ * \param uri_path The Uri-Path of the EDHOC resource, normally
+ *               EDHOC_COAP_URI_PATH, or NULL to send no Uri-Path
+ *
+ * This function must be called before edhoc_client_run(). It allows one
+ * client to run EDHOC with several peers one after another, e.g. with each
+ * hop of a nested OSCORE path, calling edhoc_client_close() between runs.
+ *
+ * When the EDHOC messages are sent through a proxy, ep_uri is the proxy and
+ * uri_path is NULL. The OSCORE path set for the proxy then protects each
+ * EDHOC message and adds a Proxy-Uri option with the full EDHOC URI of the
+ * next hop (oscore_path_t target_uri).
+ */
+void edhoc_client_set_server(const char *ep_uri, const char *uri_path);
+
 #endif /* EDHOC_CLIENT_H_ */
 /** @} */

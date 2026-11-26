@@ -1,3 +1,12 @@
+/**
+ * \file
+ *         Project configuration for the Stage 1 OSCORE + EDHOC client:
+ *         EDHOC Initiator, method 3, cipher suite 2, CCS credentials by
+ *         reference (kid), RFC 9529 Trace 2.
+ * \author
+ *         Abhishek Shadakshari
+ */
+
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 

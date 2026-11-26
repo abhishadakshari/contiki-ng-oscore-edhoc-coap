@@ -256,7 +256,10 @@ edhoc_generate_id_cred_x(const cose_key_t *cose, uint8_t *cred, size_t cred_sz)
     return cbor_end_writer(&writer);
   }
 
-  /* Credential by value: ID_CRED_X = {14: CRED_X} ('kccs', RFC 9528 3.5.2) */
+  /*
+   * Credential by value: ID_CRED_X = {14: CRED_X}, the 'kccs' COSE header
+   * parameter (RFC 9528 Section 3.5.2), with CRED_X a CWT Claims Set.
+   */
   if(EDHOC_AUTHENT_TYPE == EDHOC_CRED_INCLUDE) {
     uint8_t ccs[EDHOC_MAX_CRED_LEN];
     size_t ccs_sz = edhoc_generate_cred_x(cose, ccs, sizeof(ccs));
@@ -313,18 +316,21 @@ edhoc_generate_transcript_hash_2(edhoc_context_t *ctx, const uint8_t *eph_pub,
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-/* Largest TH_3 / TH_4 input: TH, PLAINTEXT_2/3 and CRED_X */
+/*
+ * The largest input to TH_3 / TH_4: the previous TH as a CBOR byte string,
+ * PLAINTEXT_2 / PLAINTEXT_3 and CRED_X. A credential sent by value makes
+ * this larger than EDHOC_MAX_BUFFER.
+ */
 #define EDHOC_TH_INPUT_MAX (CBOR_BYTE_STRING_SIZE(HASH_LEN) + EDHOC_MAX_BUFFER + EDHOC_MAX_CRED_LEN)
 /*---------------------------------------------------------------------------*/
 uint8_t
 edhoc_generate_transcript_hash_3(edhoc_context_t *ctx, const uint8_t *cred, uint16_t cred_sz,
               const uint8_t *plaintext, uint16_t plaintext_sz)
 {
-  /* TH_3 = H(TH_2, PLAINTEXT_2, CRED_R). The input is TH (34 bytes) + PLAINTEXT + CRED, so it
-   * is sized for the largest of each. It used to be EDHOC_MAX_BUFFER (256)
-   * bytes, which a credential sent by value overflows (TH_4 input is 259 bytes
-   * for RFC 9529 Trace 2 by value), and the error was ignored, leaving the
-   * old TH in place. */
+  /*
+   * TH_3 = H(TH_2, PLAINTEXT_2, CRED_R). Returns 1, and leaves the TH
+   * unchanged, if the input does not fit; callers must check the result.
+   */
   uint8_t h[EDHOC_TH_INPUT_MAX];
   uint16_t required_size = CBOR_BYTE_STRING_SIZE(HASH_LEN) + plaintext_sz + cred_sz;
   if(required_size > sizeof(h)) {
@@ -351,11 +357,10 @@ uint8_t
 edhoc_generate_transcript_hash_4(edhoc_context_t *ctx, const uint8_t *cred, uint16_t cred_sz,
               const uint8_t *plaintext, uint16_t plaintext_sz)
 {
-  /* TH_4 = H(TH_3, PLAINTEXT_3, CRED_I). The input is TH (34 bytes) + PLAINTEXT + CRED, so it
-   * is sized for the largest of each. It used to be EDHOC_MAX_BUFFER (256)
-   * bytes, which a credential sent by value overflows (TH_4 input is 259 bytes
-   * for RFC 9529 Trace 2 by value), and the error was ignored, leaving the
-   * old TH in place. */
+  /*
+   * TH_4 = H(TH_3, PLAINTEXT_3, CRED_I). Returns 1, and leaves the TH
+   * unchanged, if the input does not fit; callers must check the result.
+   */
   uint8_t h[EDHOC_TH_INPUT_MAX];
   uint16_t required_size = CBOR_BYTE_STRING_SIZE(HASH_LEN) + plaintext_sz + cred_sz;
   if(required_size > sizeof(h)) {
@@ -907,9 +912,12 @@ edhoc_authenticate_msg(edhoc_context_t *ctx, uint8_t *ad, bool msg2)
   cbor_reader_state_t reader;
   cbor_init_reader(&reader, plaintext_ptr, parse_size);
 
-  /* Parse ID_CRED_X using shared reader state. The received ID_CRED_X is
-   * kept as sent (it is part of the MAC context), and if the credential
-   * came by value its bytes are kept as CRED_X. */
+  /*
+   * Parse ID_CRED_X using shared reader state. The received ID_CRED_X is
+   * kept exactly as sent, since it is part of the MAC context. If the
+   * credential came by value, cred_value points at its bytes, which are
+   * then used as CRED_X.
+   */
   const uint8_t *cred_value = NULL;
   size_t cred_value_sz = 0;
   int8_t key_result = edhoc_get_key_id_cred_x(&reader, ctx->buffers.id_cred_x,
@@ -941,9 +949,12 @@ edhoc_authenticate_msg(edhoc_context_t *ctx, uint8_t *ad, bool msg2)
     ad = NULL;
   }
 
-  /* CRED_X: by value, the exact bytes the peer sent; by reference, built
+  /*
+   * CRED_X: by value, the exact bytes the peer sent; by reference, built
    * from the credential stored locally for that kid. ID_CRED_X is the one
-   * received above, not one generated from this node's own settings. */
+   * received above, not one generated from this node's own settings, which
+   * may differ from the peer's (e.g. by reference here, by value there).
+   */
   if(cred_value) {
     if(cred_value_sz > sizeof(ctx->buffers.cred_x)) {
       LOG_ERR("Received credential too large (%zu bytes)\n", cred_value_sz);

@@ -1,5 +1,14 @@
+/**
+ * \file
+ *         Project configuration for the credentials-by-value test: EDHOC
+ *         Initiator, method 3, cipher suite 2, credentials sent by value.
+ * \author
+ *         Abhishek Shadakshari
+ */
+
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
+
 #define EDHOC_CONF_ROLE              EDHOC_INITIATOR
 #define EDHOC_CONF_METHOD            EDHOC_METHOD3
 #define EDHOC_CONF_AUTHENT_TYPE      EDHOC_CRED_INCLUDE

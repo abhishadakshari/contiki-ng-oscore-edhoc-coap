@@ -1,4 +1,17 @@
-/* Offline checks for credentials by value ('kccs') in the EDHOC module. */
+/**
+ * \file
+ *         Offline checks for credentials by value ('kccs') in the EDHOC
+ *         module, using the RFC 9529 Trace 2 credentials. No network needed:
+ *         run the .native and it prints the number of checks and failures.
+ *
+ *         Checks that a received {14: CCS} is parsed and its exact bytes used
+ *         as CRED_X, that an untrusted key sent by value is rejected, that
+ *         credentials by reference still work, that this node sends
+ *         {14: CRED_I}, and that the ID_CRED_X and TH_4 buffers are large
+ *         enough for a credential by value.
+ * \author
+ *         Abhishek Shadakshari
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -9,9 +22,11 @@
 #include "edhoc-cred-rfc9529.h"
 #include "lib/cbor.h"
 
+/* Count the checks and print each one that fails */
 static int checks, failed;
 #define CHECK(c, ...) do { checks++; if(!(c)) { failed++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while(0)
 
+/* Convert a hex string into bytes; returns the number of bytes */
 static size_t unhex(const char *h, uint8_t *b) { size_t n = 0; while(h[0] && h[1]) { unsigned v; sscanf(h, "%2x", &v); b[n++] = v; h += 2; } return n; }
 
 /* RFC 9529 Trace 2 CRED_R, as the Java server now sends it */
