@@ -82,7 +82,7 @@ public class EdhocServer extends CoapServer {
     // i.e., for this peer to indicate its own authentication credential to the other peer.
     // Possible values: ID_CRED_TYPE_KID ; ID_CRED_TYPE_CWT ; ID_CRED_TYPE_CCS ;
     //                  ID_CRED_TYPE_X5T ; ID_CRED_TYPE_X5U ; ID_CRED_TYPE_X5CHAIN
-	private static int idCredType = Constants.ID_CRED_TYPE_CCS;                // was ID_CRED_TYPE_X5T
+	private static int idCredType = Constants.ID_CRED_TYPE_KID;                // was ID_CRED_TYPE_X5T
 	    
     // The trust model used to validate authentication credentials of other peers
     private static int trustModel = Constants.TRUST_MODEL_NO_LEARNING;
